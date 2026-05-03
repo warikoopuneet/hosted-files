@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transformer Deep Dive — QKV, Attention & KV Cache</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Sora:wght@300;400;500;600;700&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0e1a;--bg2:#0f1425;--bg3:#161d32;--bg4:#1c2440;
+  --teal:#00c896;--teal-dim:rgba(0,200,150,0.1);
+  --amber:#f5a623;--amber-dim:rgba(245,166,35,0.1);
+  --blue:#4d9eff;--blue-dim:rgba(77,158,255,0.1);
+  --purple:#a78bfa;--purple-dim:rgba(167,139,250,0.1);
+  --pink:#f472b6;--pink-dim:rgba(244,114,182,0.1);
+  --red:#ff6b6b;--red-dim:rgba(255,107,107,0.1);
+  --green:#4ade80;--green-dim:rgba(74,222,128,0.1);
+  --text:#dde3f0;--muted:#7a849e;--border:rgba(255,255,255,0.07);
+  --mono:'IBM Plex Mono',monospace;--sans:'Sora',sans-serif;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;display:flex;flex-direction:column;align-items:center;overflow-x:hidden}
+
+/* ── HEADER ─────────────────────────────────────────────────── */
+.hdr{width:100%;padding:13px 24px;border-bottom:1px solid var(--border);background:var(--bg2);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:99;gap:12px}
+.hdr-left{display:flex;flex-direction:column;gap:1px;flex-shrink:0}
+.hdr-title{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--amber)}
+.hdr-sub{font-family:var(--mono);font-size:10px;color:var(--muted)}
+.hdr-right{display:flex;align-items:center;gap:10px}
+.back-btn{font-family:var(--mono);font-size:11px;padding:5px 14px;border-radius:6px;border:1px solid var(--border);color:var(--muted);text-decoration:none;transition:all .2s;cursor:pointer;background:transparent;white-space:nowrap}
+.back-btn:hover{border-color:var(--teal);color:var(--teal)}
+.dots{display:flex;gap:5px;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:280px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);cursor:pointer;transition:all .3s;flex-shrink:0}
+.dot.done{background:rgba(245,166,35,.35);border-color:var(--amber)}
+.dot.active{background:var(--amber);box-shadow:0 0 10px var(--amber);transform:scale(1.4);border-color:var(--amber)}
+
+/* ── SECTION PILLS ──────────────────────────────────────────── */
+.topic-bar{width:100%;max-width:860px;padding:16px 22px 0;display:flex;gap:8px;flex-wrap:wrap}
+.topic-pill{font-family:var(--mono);font-size:10px;letter-spacing:.08em;padding:5px 14px;border-radius:20px;border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:all .25s;background:transparent}
+.topic-pill.active{border-color:var(--amber);color:var(--amber);background:var(--amber-dim)}
+.topic-pill.done-pill{border-color:rgba(74,222,128,.4);color:var(--green)}
+
+/* ── MAIN ───────────────────────────────────────────────────── */
+.main{width:100%;max-width:860px;padding:28px 22px 0}
+.s-label{font-family:var(--mono);font-size:10px;color:var(--amber);letter-spacing:.14em;text-transform:uppercase;margin-bottom:6px;opacity:0;animation:up .4s ease .05s forwards}
+.s-title{font-size:25px;font-weight:700;line-height:1.2;margin-bottom:8px;opacity:0;animation:up .4s ease .1s forwards}
+.s-sub{font-size:14px;color:var(--muted);line-height:1.65;max-width:640px;margin-bottom:24px;opacity:0;animation:up .4s ease .15s forwards}
+.viz{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:30px 26px;margin-bottom:18px;min-height:260px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;opacity:0;animation:up .5s ease .18s forwards}
+.viz-glow{position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--amber) 40%,transparent);opacity:.35}
+.cards{display:grid;grid-template-columns:1fr;gap:10px;margin-bottom:20px;opacity:0;animation:up .4s ease .28s forwards}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:11px;padding:14px 18px}
+.card.tl{border-left:2px solid var(--teal)}.card.al{border-left:2px solid var(--amber)}.card.bl{border-left:2px solid var(--blue)}.card.pl{border-left:2px solid var(--purple)}.card.rl{border-left:2px solid var(--red)}.card.gl{border-left:2px solid var(--green)}
+.card-hd{font-size:10px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:7px;display:flex;align-items:center;gap:7px;font-family:var(--mono)}
+.card p{font-size:13px;color:var(--muted);line-height:1.7}
+.card p strong{color:var(--text);font-weight:600}.card p em{color:var(--teal);font-style:normal;font-weight:500}.card p code{font-family:var(--mono);font-size:12px;color:var(--amber);background:var(--bg3);padding:1px 6px;border-radius:4px}
+.nav{display:flex;justify-content:space-between;align-items:center;padding:0 0 36px;opacity:0;animation:up .4s ease .32s forwards}
+.btn{font-family:var(--sans);font-size:13px;font-weight:500;padding:9px 20px;border-radius:8px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);transition:all .2s}
+.btn:hover:not(:disabled){border-color:var(--amber);color:var(--amber)}
+.btn:disabled{opacity:.3;cursor:not-allowed}
+.btn-nx{background:var(--amber);color:#000;border-color:var(--amber);font-weight:700;padding:10px 28px}
+.btn-nx:hover:not(:disabled){box-shadow:0 0 22px rgba(245,166,35,.4);background:#ffc043}
+.btn-nx:disabled{background:var(--bg3);color:var(--muted);border-color:var(--border);box-shadow:none}
+.ct{font-family:var(--mono);font-size:11px;color:var(--muted)}
+
+/* ── ANIMATIONS ─────────────────────────────────────────────── */
+@keyframes up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes gamber{0%,100%{box-shadow:0 0 6px rgba(245,166,35,.5)}50%{box-shadow:0 0 18px rgba(245,166,35,.9)}}
+@keyframes gteal{0%,100%{box-shadow:0 0 6px rgba(0,200,150,.5)}50%{box-shadow:0 0 18px rgba(0,200,150,.9)}}
+@keyframes gpurple{0%,100%{box-shadow:0 0 6px rgba(167,139,250,.5)}50%{box-shadow:0 0 18px rgba(167,139,250,.9)}}
+@keyframes gblue{0%,100%{box-shadow:0 0 6px rgba(77,158,255,.5)}50%{box-shadow:0 0 18px rgba(77,158,255,.9)}}
+@keyframes drawL{from{stroke-dashoffset:600}to{stroke-dashoffset:0}}
+@keyframes popIn{from{transform:scale(.3);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes slideR{from{transform:translateX(-20px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes slideL{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes fillW{from{width:0}to{}}
+@keyframes fillH{from{height:0}to{}}
+@keyframes spin1{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes shine{0%{left:-100%}100%{left:200%}}
+@keyframes ripple{0%{transform:scale(1);opacity:.7}100%{transform:scale(2.8);opacity:0}}
+@keyframes typeIn{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0% 0 0)}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes glow-fill{0%{opacity:.2;transform:scale(.95)}100%{opacity:.7;transform:scale(1)}}
+
+/* ── SHARED COMPONENTS ──────────────────────────────────────── */
+.center{display:flex;flex-direction:column;align-items:center;gap:13px;width:100%}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center}
+.bdg{display:inline-flex;align-items:center;font-family:var(--mono);font-size:10px;letter-spacing:.1em;padding:3px 12px;border-radius:20px;border:1px solid;text-transform:uppercase}
+.bdg.t{border-color:var(--teal);color:var(--teal);background:var(--teal-dim)}
+.bdg.a{border-color:var(--amber);color:var(--amber);background:var(--amber-dim)}
+.bdg.b{border-color:var(--blue);color:var(--blue);background:var(--blue-dim)}
+.bdg.p{border-color:var(--purple);color:var(--purple);background:var(--purple-dim)}
+.bdg.g{border-color:var(--green);color:var(--green);background:var(--green-dim)}
+.tok{font-family:var(--mono);font-size:14px;font-weight:600;padding:9px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);transition:all .3s}
+.tok.ht{border-color:var(--teal);color:var(--teal);background:var(--teal-dim)}
+.tok.ha{border-color:var(--amber);color:var(--amber);background:var(--amber-dim)}
+.tok.hb{border-color:var(--blue);color:var(--blue);background:var(--blue-dim)}
+.tok.hp{border-color:var(--purple);color:var(--purple);background:var(--purple-dim)}
+.eq{font-family:var(--mono);font-size:12px;color:var(--teal);background:var(--bg3);padding:6px 16px;border-radius:6px;border:1px solid rgba(0,200,150,.18);display:inline-block}
+.mat-cell{display:flex;align-items:center;justify-content:center;border-radius:6px;font-family:var(--mono);font-size:11px;font-weight:600;transition:all .4s}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-left">
+    <div class="hdr-title">Deep Dive</div>
+    <div class="hdr-sub" id="sind">QKV Creation · Attention Matrix · KV Cache</div>
+  </div>
+  <div class="hdr-right">
+    <a href="transformer_explainer.html" class="back-btn">← Main Guide</a>
+    <div class="dots" id="dots"></div>
+  </div>
+</div>
+
+<div class="topic-bar" id="topic-bar"></div>
+
+<div class="main">
+  <div class="s-label" id="slabel"></div>
+  <div class="s-title" id="stitle"></div>
+  <div class="s-sub"   id="ssub"></div>
+  <div class="viz"     id="viz"><div class="viz-glow"></div></div>
+  <div class="cards"   id="cards"></div>
+  <div class="nav">
+    <button class="btn" id="bbk" onclick="prev()">← Back</button>
+    <span class="ct" id="sct"></span>
+    <button class="btn btn-nx" id="bnx" onclick="next()">Next →</button>
+  </div>
+</div>
+
+<script>
+/* ════════════════════════════════════════════════
+   STAGE DEFINITIONS
+════════════════════════════════════════════════ */
+const STAGES = [
+
+/* ═══ TOPIC A: HOW QKV ARE CREATED ═══════════════════════════ */
+{
+  topic:0, label:"Topic A — QKV Creation",
+  title:"Where do Q, K, V actually come from?",
+  sub:"Each token's embedding gets multiplied by three separate learned weight matrices to produce its Q, K, and V vectors.",
+  render: rA0,
+  cards:[
+    {c:"al",hd:"amber",head:"The starting point",body:"After embeddings + positional encoding, each token is a single vector of ~512 numbers — call it <strong>x</strong>. This x holds the token's identity and position, but not yet its role in context."},
+    {c:"tl",hd:"teal",head:"Three weight matrices",body:"Three matrices are learned during training: <code>W_Q</code>, <code>W_K</code>, <code>W_V</code>. They are each shaped 512×64 (in a typical head). Multiply x by each to get Q, K, V. <strong>That's it.</strong> It's just matrix multiplication."},
+    {c:"pl",hd:"purple",head:"Q = x · W_Q, K = x · W_K, V = x · W_V",body:"The same input vector x produces three different outputs because the weight matrices are different. <strong>W_Q was trained to pull out 'what I'm looking for'.</strong> W_K was trained to pull out 'what I offer'. W_V was trained to pull out 'what I contribute if chosen'."}
+  ]
+},
+{
+  topic:0, label:"Topic A — Semantic Meaning in Weights",
+  title:"How do W_Q, W_K, W_V learn to be meaningful?",
+  sub:"They start random. Training shapes them so that semantically related tokens produce matching Q and K vectors.",
+  render: rA1,
+  cards:[
+    {c:"al",hd:"amber",head:"Random at the start",body:"When training begins, W_Q, W_K, W_V are initialized randomly. The first attention scores are noise. The model makes wrong predictions, gets a loss signal, and <strong>adjusts all weights via backpropagation</strong>."},
+    {c:"tl",hd:"teal",head:"What backprop teaches the matrices",body:"Over billions of sentences, the gradient updates shape W_Q so that verb tokens produce Queries that get <em>high dot products</em> with their subject's Keys. Gradually W_Q learns to encode 'seeking a grammatical subject'. <strong>This pattern emerges — it was never hand-coded.</strong>"},
+    {c:"bl",hd:"blue",head:"The 'matching' signal",body:"If a token's Q and another token's K have a <strong>high dot product</strong>, they match. Training pushes related pairs (verb ↔ subject, pronoun ↔ referent) to have high dot products, and unrelated pairs to have low ones. The matrices learn to be a semantic matchmaking system."},
+    {c:"pl",hd:"purple",head:"Different heads learn different relationships",body:"In multi-head attention, each head has its own W_Q, W_K, W_V. One head's matrices might specialize in syntax. Another in co-reference. Another in long-range dependencies. This diversity is learned automatically, not designed."}
+  ]
+},
+{
+  topic:0, label:"Topic A — Step-by-Step QKV",
+  title:"Let's trace the exact computation for 'cat'",
+  sub:"We'll multiply the 'cat' embedding vector by each weight matrix and watch the Q, K, V vectors emerge.",
+  render: rA2,
+  cards:[
+    {c:"tl",hd:"teal",head:"Dimensionality in practice",body:"In GPT-style models, the full embedding is 512-4096 dims. Each attention head operates in a smaller subspace (e.g. 64 dims per head). So W_Q is shaped (512 × 64): it projects from the full embedding space down to a 64-dim Q space."},
+    {c:"al",hd:"amber",head:"Each head sees the same x but through different lenses",body:"With 8 heads, there are 8 different W_Q matrices, each extracting a different 64-dim projection from the same 512-dim x. Head 1's Q might encode syntactic role. Head 3's Q might encode semantic category. The full Q is all heads concatenated back to 512 dims."},
+    {c:"pl",hd:"purple",head:"Why the dimensions need to match",body:"For the dot product Q_i · K_j to work, Q and K must have the same dimension (both 64-dim). V can technically be different but is usually 64-dim too. The division by <strong>√64 = 8</strong> is the scaling step — it stabilizes gradients during training."}
+  ]
+},
+
+/* ═══ TOPIC B: HOW THE ATTENTION MATRIX IS BUILT ════════════ */
+{
+  topic:1, label:"Topic B — Building the Attention Matrix",
+  title:"The attention matrix is built in 5 exact steps",
+  sub:"Let's walk through each computation that turns Q and K vectors into an attention weight matrix.",
+  render: rB0,
+  cards:[
+    {c:"al",hd:"amber",head:"It's a 5-step recipe",body:"<strong>1)</strong> Compute Q vectors for all tokens. <strong>2)</strong> Compute K vectors for all tokens. <strong>3)</strong> Compute dot product of every Q with every K. <strong>4)</strong> Scale by √d. <strong>5)</strong> Apply softmax row by row. The result is the attention weight matrix."},
+    {c:"tl",hd:"teal",head:"What the matrix represents",body:"The matrix is n×n where n = number of tokens. Cell [i,j] = how much attention <strong>token i pays to token j</strong>. Each row sums to 1 (like probabilities). A row with a bright cell at [i,j] means token i gets most of its context from token j."},
+    {c:"bl",hd:"blue",head:"Then apply to V",body:"The matrix is never used alone. It's immediately multiplied by the V matrix: <code>output = softmax(QKᵀ/√d) × V</code>. Each row of the output is a <strong>weighted blend of all Value vectors</strong>, weighted by that row's attention scores."}
+  ]
+},
+{
+  topic:1, label:"Topic B — Step by Step (Interactive)",
+  title:"Watch the matrix get built, one step at a time",
+  sub:"Click through each sub-step to see exactly how raw Q·K dot products become a meaningful attention pattern.",
+  render: rB1,
+  cards:[
+    {c:"al",hd:"amber",head:"Step 3 is the key computation",body:"The raw score matrix (before scaling and softmax) can have very large or very small values. The scale factor √d_k prevents the dot products from exploding in magnitude, which would cause softmax to produce near-zero gradients."},
+    {c:"tl",hd:"teal",head:"Why softmax per row (not the whole matrix)?",body:"Softmax is applied to each row independently because each token independently needs its attention budget to sum to 1. Token 'sat' needs <em>its own</em> distribution over all tokens. These distributions are independent of each other."},
+    {c:"pl",hd:"purple",head:"Causal masking in decoders",body:"In language models (decoders), the upper triangle of the matrix is set to -∞ before softmax — so it becomes 0. This <strong>masks out future tokens</strong>: when generating token 3, you can only attend to tokens 0, 1, 2. Encoders (like BERT) use no mask — full bidirectional attention."}
+  ]
+},
+{
+  topic:1, label:"Topic B — QKV to Output",
+  title:"From attention weights to the final output vector",
+  sub:"The attention weights aren't the end — they're used to blend Value vectors into a rich new representation.",
+  render: rB2,
+  cards:[
+    {c:"tl",hd:"teal",head:"The output is a weighted sum of V",body:"For token 'sat': its output = 0.05 × V_The + 0.72 × V_cat + 0.23 × V_sat. <strong>It's literally mixing 72% of 'cat's meaning into 'sat's representation.</strong> The verb gets infused with its subject's semantic content."},
+    {c:"al",hd:"amber",head:"This is what 'contextual embedding' means",body:"Before attention, each token's vector only captured its dictionary meaning. After attention, each token's vector captures <em>its meaning in this specific context</em>. 'Bank' near 'river' gets a different output than 'bank' near 'account'."},
+    {c:"bl",hd:"blue",head:"Residual connection: the original is preserved",body:"The attention output is <strong>added back</strong> to the original x (residual/skip connection). This means the token keeps its original identity and gains new context. Residual connections also make training much more stable by giving gradients a direct path to flow backward."}
+  ]
+},
+
+/* ═══ TOPIC C: KV CACHE DEEP DIVE ════════════════════════════ */
+{
+  topic:2, label:"Topic C — Why Q Changes, K/V Don't",
+  title:"The fundamental reason Q is not cached",
+  sub:"Understanding why Query must always be freshly computed but Key and Value can be reused forever.",
+  render: rC0,
+  cards:[
+    {c:"al",hd:"amber",head:"What Q represents",body:"Query = 'given who I am AND where I am in the sequence, what context do I need?' This is <strong>position-dependent</strong>. Token at position 5 needs different context than the same token at position 50. So Q must be recomputed for every new token at its new position."},
+    {c:"tl",hd:"teal",head:"What K and V represent",body:"Key = 'what meaning does this token offer?' Value = 'what content does this token contribute?' These depend only on <strong>the token itself and its position</strong>, not on what comes after. Once a token is generated and placed, its K and V never change."},
+    {c:"pl",hd:"purple",head:"The asymmetry",body:"Generating token 100 requires: Q₁₀₀ (fresh, position-specific) × K₀..₉₉ (all cached!) × V₀..₉₉ (all cached!). The new token only adds one row to the Q computation, but can reuse all existing K and V. <strong>This is why only K and V are cached.</strong>"}
+  ]
+},
+{
+  topic:2, label:"Topic C — KV Cache in Action",
+  title:"Watching the KV cache fill as tokens are generated",
+  sub:"See exactly what gets stored, what gets reused, and how the cache grows with each new token.",
+  render: rC1,
+  cards:[
+    {c:"tl",hd:"teal",head:"Cache grows linearly",body:"Each new generated token adds exactly one K vector and one V vector per layer per head to the cache. For a model with 32 layers and 16 heads, generating one token adds <strong>32 × 16 × 2 = 1,024 new vectors</strong> to the cache."},
+    {c:"al",hd:"amber",head:"First token is the most expensive",body:"When processing the initial prompt (called 'prefill'), every K and V must be computed from scratch — no cache exists yet. This is a big parallel computation. After prefill, the cache is populated and subsequent generation is cheaper. That's why <strong>the first token takes longer</strong> than subsequent ones."},
+    {c:"bl",hd:"blue",head:"Memory cost example",body:"GPT-3 (175B params): 96 layers, 96 heads, d=128. Each token = 96 × 96 × 128 × 2 (K+V) × 2 bytes (fp16) ≈ <strong>4.7 MB per token</strong>. A 4,000-token context = ~18 GB just for KV cache. This is why long contexts are expensive."}
+  ]
+},
+{
+  topic:2, label:"Topic C — Prefix Caching Across Prompts",
+  title:"Can the KV cache be shared between different prompts?",
+  sub:"Yes — and this is one of the most important optimizations in production LLM serving.",
+  render: rC2,
+  cards:[
+    {c:"tl",hd:"teal",head:"Prefix caching: the idea",body:"If two prompts start with the same text — e.g. a system prompt like 'You are a helpful assistant...' — their K and V vectors for those shared tokens will be <strong>identical</strong>. They can share the same cached K/V rather than each computing them separately."},
+    {c:"al",hd:"amber",head:"System prompts get cached once, reused for all users",body:"In production, the system prompt (sometimes thousands of tokens) is computed once and cached. Every user request that uses the same system prompt <strong>skips that entire computation</strong> and starts from the cached K/V. This can cut Time-To-First-Token by 50-80%."},
+    {c:"bl",hd:"blue",head:"Why the prefix must be identical",body:"Even changing one character in the shared prefix invalidates the cache, because the positional encodings mean the exact same token at a different position produces different K and V. <strong>The prefix must be bit-for-bit identical</strong> to get a cache hit."},
+    {c:"gl",hd:"green",head:"Prompt caching in the real world",body:"Anthropic's API, OpenAI, and Google all offer prompt caching. You pay less per token for cache hits. Anthropic charges ~10% of normal cost for cached tokens. This makes long system prompts much cheaper at scale — a RAG pipeline with a 10k-token context can be 80% cheaper with caching."}
+  ]
+},
+{
+  topic:2, label:"Topic C — Full KV Cache Mechanics",
+  title:"The complete picture: prefill, decode, eviction",
+  sub:"How the KV cache works end-to-end in a real LLM serving system.",
+  render: rC3,
+  cards:[
+    {c:"al",hd:"amber",head:"Phase 1: Prefill",body:"The input prompt is processed all at once in parallel (full attention, no masking needed for the prompt itself). All K and V vectors are computed and stored in the cache. This is a GPU-compute-bound phase — lots of math, less memory transfer."},
+    {c:"tl",hd:"teal",head:"Phase 2: Decode",body:"One token is generated at a time. For each new token: compute Q (tiny), load cached K and V from memory (large), compute attention, apply FFN, sample next token. This phase is <strong>memory-bandwidth bound</strong> — the bottleneck is reading the huge KV cache from GPU memory."},
+    {c:"bl",hd:"blue",head:"Cache eviction (context window limits)",body:"When the sequence reaches the context limit, older K/V entries must be <strong>evicted</strong> (deleted) to make room. Different strategies exist: FIFO (drop oldest), sliding window, or 'StreamingLLM' which always keeps the first few tokens (special 'attention sinks') plus the most recent."},
+    {c:"pl",hd:"purple",head:"PagedAttention (vLLM)",body:"Most production systems use PagedAttention: instead of a single contiguous KV buffer, memory is allocated in <strong>pages</strong> like an OS. Different requests can share physical memory pages for shared prefixes. This allows much higher throughput and is why vLLM/SGLang are popular serving frameworks."}
+  ]
+}
+
+]; // end STAGES
+
+let cur = 0;
+
+const TOPICS = [
+  {name:"A — QKV Creation", range:[0,2], col:"var(--purple)"},
+  {name:"B — Attention Matrix", range:[3,5], col:"var(--teal)"},
+  {name:"C — KV Cache Deep Dive", range:[6,9], col:"var(--blue)"},
+];
+
+/* ── DOM helpers ─────────────────────────────────────────── */
+function fi(d){return `style="opacity:0;animation:up .4s ease ${d}s forwards"`}
+function sw(id,tag,cls){const o=document.getElementById(id);const n=document.createElement(tag);n.id=id;if(cls)n.className=cls;o.replaceWith(n);return n}
+
+function buildDots(){
+  const c=document.getElementById('dots');c.innerHTML='';
+  STAGES.forEach((_,i)=>{
+    const d=document.createElement('div');
+    d.className='dot'+(i<cur?' done':'')+(i===cur?' active':'');
+    d.title=STAGES[i].label;d.onclick=()=>go(i);c.appendChild(d);
+  });
+}
+
+function buildTopicBar(){
+  const bar=document.getElementById('topic-bar');bar.innerHTML='';
+  const activeTopic=STAGES[cur].topic;
+  TOPICS.forEach((t,i)=>{
+    const pill=document.createElement('div');
+    pill.className='topic-pill'+(i===activeTopic?' active':'');
+    pill.textContent=t.name;pill.onclick=()=>go(t.range[0]);
+    bar.appendChild(pill);
+  });
+}
+
+function go(i){cur=i;render()}
+function next(){if(cur<STAGES.length-1){cur++;render()}}
+function prev(){if(cur>0){cur--;render()}}
+
+function render(){
+  const s=STAGES[cur];
+  document.getElementById('sind').textContent=`Step ${cur+1} of ${STAGES.length}`;
+  document.getElementById('sct').textContent=`${cur+1} / ${STAGES.length}`;
+  sw('slabel','div','s-label').textContent=s.label;
+  sw('stitle','div','s-title').textContent=s.title;
+  sw('ssub','div','s-sub').textContent=s.sub;
+  const v=sw('viz','div','viz');v.innerHTML='<div class="viz-glow"></div>';
+  sw('cards','div','cards');
+  document.querySelector('.nav').outerHTML=`<div class="nav" ${fi(.32)}>
+    <button class="btn" onclick="prev()" ${cur===0?'disabled':''}>← Back</button>
+    <span class="ct" id="sct">${cur+1} / ${STAGES.length}</span>
+    <button class="btn btn-nx" onclick="next()" ${cur===STAGES.length-1?'disabled':''}>Next →</button>
+  </div>`;
+  buildDots();buildTopicBar();s.render();
+  const cc=document.getElementById('cards');
+  const colors={teal:'var(--teal)',amber:'var(--amber)',blue:'var(--blue)',purple:'var(--purple)',red:'var(--red)',green:'var(--green)'};
+  s.cards.forEach((c,i)=>{
+    const div=document.createElement('div');
+    div.className=`card ${c.c}`;div.style=`opacity:0;animation:up .4s ease ${.28+i*.1}s forwards`;
+    div.innerHTML=`<div class="card-hd" style="color:${colors[c.hd]}"><div style="width:7px;height:7px;border-radius:50%;background:${colors[c.hd]};flex-shrink:0"></div>${c.head}</div><p>${c.body}</p>`;
+    cc.appendChild(div);
+  });
+}
+
+/* ════════════════════════════════════════════════
+   RENDER FUNCTIONS — TOPIC A: QKV CREATION
+════════════════════════════════════════════════ */
+
+function rA0(){
+  // Show: x vector → multiply by 3 matrices → 3 output vectors
+  document.getElementById('viz').innerHTML += `
+  <div class="center">
+    <div ${fi(.05)}><div class="bdg a">QKV creation — the formula</div></div>
+    <div ${fi(.1)} style="font-size:13px;color:var(--muted);text-align:center">
+      Every token embedding <span style="color:var(--text);font-weight:600">x</span> is multiplied by 3 separate weight matrices
+    </div>
+    <!-- The main diagram -->
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:4px">
+      <!-- x vector -->
+      <div ${fi(.15)} style="display:flex;flex-direction:column;align-items:center;gap:6px">
+        <div style="font-family:var(--mono);font-size:12px;color:var(--muted)">token 'cat'</div>
+        <div id="xvec" style="display:flex;flex-direction:column;gap:2px"></div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--amber)">x ∈ ℝ⁵¹²</div>
+      </div>
+      <!-- arrows and matrices -->
+      <div style="display:flex;flex-direction:column;gap:18px" ${fi(.3)}>
+        ${[['W_Q','var(--teal)','Query'],['W_K','var(--amber)','Key'],['W_V','var(--purple)','Value']].map(([name,col,label],i)=>`
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="font-family:var(--mono);font-size:11px;color:var(--muted)">×</div>
+          <div style="border:1px solid ${col};background:${col}18;border-radius:8px;padding:7px 14px;font-family:var(--mono);font-size:13px;font-weight:600;color:${col};min-width:70px;text-align:center;animation:${i===0?'gamber':i===1?'gteal':'gpurple'} 3s ${i*.4}s infinite">${name}</div>
+          <div style="font-size:11px;color:var(--muted)">→</div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--muted)">(512×64)</div>
+        </div>`).join('')}
+      </div>
+      <!-- = outputs -->
+      <div style="display:flex;flex-direction:column;gap:16px" ${fi(.5)}>
+        ${[['Q','var(--teal)','What I\'m looking for'],['K','var(--amber)','What I offer'],['V','var(--purple)','What I contribute']].map(([letter,col,desc],i)=>`
+        <div style="border:1px solid ${col};background:${col}15;border-radius:8px;padding:8px 16px;display:flex;align-items:center;gap:12px;animation:up .4s ease ${.5+i*.12}s forwards;opacity:0">
+          <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:${col}">${letter}</div>
+          <div>
+            <div style="font-size:12px;color:var(--text);font-weight:500">64-dim vector</div>
+            <div style="font-size:11px;color:var(--muted)">${desc}</div>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>
+    <div class="eq" ${fi(.9)}>Q = x·W_Q &nbsp;|&nbsp; K = x·W_K &nbsp;|&nbsp; V = x·W_V</div>
+  </div>`;
+  // Draw the x vector bars
+  setTimeout(()=>{
+    const xvec = document.getElementById('xvec');
+    if(!xvec)return;
+    let s=42;
+    for(let i=0;i<10;i++){
+      s=(s*1664525+1013904223)&0xffffffff;
+      const h=8+Math.abs(s%32);
+      const div=document.createElement('div');
+      div.style=`width:${h+20}px;height:9px;border-radius:2px;background:rgba(245,166,35,${.15+i*.07});margin:1px 0;transition:width .4s ease ${i*.04}s`;
+      xvec.appendChild(div);
+    }
+  },200);
+}
+
+function rA1(){
+  // Show: training loop - weight matrix gets refined
+  document.getElementById('viz').innerHTML += `
+  <div class="center">
+    <div ${fi(.05)}><div class="bdg p">how weights learn semantic meaning</div></div>
+    <div style="width:100%;max-width:600px">
+      <!-- Training loop visualization -->
+      <div style="display:flex;flex-direction:column;gap:0;position:relative" ${fi(.12)}>
+        ${[
+          {step:'1',label:'Random init',desc:'W_Q, W_K, W_V start as random numbers. Attention scores = noise.',col:'var(--muted)',delay:.12},
+          {step:'2',label:'Forward pass',desc:'"The cat sat" → Q·K dot products → random attention → wrong prediction',col:'var(--red)',delay:.22},
+          {step:'3',label:'Loss computed',desc:'Model predicted "dog" but answer was "on". Loss = how wrong it was.',col:'var(--amber)',delay:.32},
+          {step:'4',label:'Backpropagation',desc:'Gradient flows backward through softmax → through Q·K → updates W_Q and W_K',col:'var(--purple)',delay:.42},
+          {step:'5',label:'Better weights',desc:'W_Q now slightly better at encoding "what am I seeking". Repeated × billions.',col:'var(--teal)',delay:.52},
+        ].map(({step,label,desc,col,delay})=>`
+        <div style="display:flex;gap:0;align-items:stretch;opacity:0;animation:up .4s ease ${delay}s forwards">
+          <div style="display:flex;flex-direction:column;align-items:center;width:32px;flex-shrink:0">
+            <div style="width:24px;height:24px;border-radius:50%;background:${col}25;border:1.5px solid ${col};display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;font-weight:600;color:${col};flex-shrink:0">${step}</div>
+            <div style="width:1.5px;flex:1;background:${col}30;min-height:8px"></div>
+          </div>
+          <div style="padding:0 0 16px 14px">
+            <div style="font-size:13px;font-weight:600;color:${col};margin-bottom:3px">${label}</div>
+            <div style="font-size:12px;color:var(--muted);line-height:1.5">${desc}</div>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>
+    <div ${fi(.7)} style="border:1px solid var(--border);border-radius:10px;padding:12px 18px;background:var(--bg3);max-width:500px;text-align:center">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--teal);letter-spacing:.1em;margin-bottom:6px">THE KEY INSIGHT</div>
+      <div style="font-size:13px;color:var(--muted);line-height:1.6">After seeing <strong style="color:var(--text)">billions of sentences</strong>, W_Q learns to project token vectors so that tokens that <em>should attend to each other</em> end up with <strong style="color:var(--teal)">high Q·K dot products</strong>. Semantics emerge from statistics.</div>
+    </div>
+  </div>`;
+}
+
+function rA2(){
+  // Matrix multiplication visual for 'cat' → Q vector
+  document.getElementById('viz').innerHTML += `
+  <div class="center">
+    <div ${fi(.05)}><div class="bdg a">computing Q for 'cat' — step by step</div></div>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:8px">
+      <!-- x: cat embedding (simplified as 6-dim) -->
+      <div ${fi(.1)} style="display:flex;flex-direction:column;align-items:center;gap:6px">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">x (cat embedding)</div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          ${[.82,-.31,.67,.15,-.54,.43].map((v,i)=>`<div style="width:56px;height:20px;border-radius:4px;background:rgba(245,166,35,${Math.abs(v)*.8});display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;color:#000;opacity:0;animation:slideR .3s ease ${.1+i*.06}s forwards">${v}</div>`).join('')}
+        </div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--muted)">512 dims (shown: 6)</div>
+      </div>
+      <!-- × -->
+      <div ${fi(.25)} style="font-size:24px;color:var(--muted);font-weight:300">×</div>
+      <!-- W_Q matrix (6×4 simplified) -->
+      <div ${fi(.3)} style="display:flex;flex-direction:column;align-items:center;gap:6px">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--teal)">W_Q (learned weights)</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:2px">
+          ${Array.from({length:24},(_,i)=>{
+            let s=i*31+7;s=(s*1664525+1013904223)&0xffffffff;
+            const v=((s%200)-100)/100;
+            return `<div style="width:28px;height:20px;border-radius:3px;background:rgba(0,200,150,${Math.abs(v)*.7});display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:8px;color:#000;opacity:0;animation:popIn .3s ease ${.3+i*.015}s forwards">${v.toFixed(1)}</div>`;
+          }).join('')}
+        </div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--muted)">512×64 (shown: 6×4)</div>
+      </div>
+      <!-- = -->
+      <div ${fi(.65)} style="font-size:24px;color:var(--muted);font-weight:300">=</div>
+      <!-- Q output -->
+      <div ${fi(.7)} style="display:flex;flex-direction:column;align-items:center;gap:6px">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--teal)">Q vector for 'cat'</div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          ${[.41,.88,-.23,.67].map((v,i)=>`<div style="width:56px;height:20px;border-radius:4px;border:1px solid var(--teal);background:rgba(0,200,150,${Math.abs(v)*.5});display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;color:var(--teal);font-weight:600;animation:gteal 2.5s ${i*.1}s infinite;opacity:0;animation:popIn .4s ease ${.7+i*.1}s forwards,gteal 2.5s ${.7+i*.1}s infinite">${v}</div>`).join('')}
+        </div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--teal)">64 dims (shown: 4)</div>
+      </div>
+    </div>
+    <div class="eq" ${fi(.95)}>Q_cat = x_cat · W_Q &nbsp;→&nbsp; encodes "what 'cat' is looking for in context"</div>
+    <div ${fi(1.05)} style="font-size:12px;color:var(--muted);text-align:center;max-width:460px">
+      Same x_cat multiplied by W_K gives K_cat = "what 'cat' offers to others seeking context"<br>
+      Same x_cat multiplied by W_V gives V_cat = "what content 'cat' contributes if selected"
+    </div>
+  </div>`;
+}
+
+/* ════════════════════════════════════════════════
+   TOPIC B: ATTENTION MATRIX CONSTRUCTION
+════════════════════════════════════════════════ */
+
+function rB0(){
+  document.getElementById('viz').innerHTML += `
+  <div class="center">
+    <div ${fi(.05)}><div class="bdg t">attention matrix — the 5-step recipe</div></div>
+    <div style="width:100%;max-width:560px;margin-top:6px">
+      ${[
+        {n:'1',label:'Compute Q for all tokens',detail:'x_The·W_Q, x_cat·W_Q, x_sat·W_Q → [Q_The, Q_cat, Q_sat]',col:'var(--teal)',delay:.1},
+        {n:'2',label:'Compute K for all tokens',detail:'x_The·W_K, x_cat·W_K, x_sat·W_K → [K_The, K_cat, K_sat]',col:'var(--amber)',delay:.2},
+        {n:'3',label:'Dot product every Q with every K',detail:'Score matrix: score[i][j] = Q_i · K_j — this is n² dot products',col:'var(--purple)',delay:.3},
+        {n:'4',label:'Scale by √dimension',detail:'Divide every score by √64 = 8 — prevents exploding gradients',col:'var(--blue)',delay:.4},
+        {n:'5',label:'Softmax each row',detail:'Each row sums to 1.0 — these are now attention weights (percentages)',col:'var(--pink)',delay:.5},
+      ].map(({n,label,detail,col,delay})=>`
+      <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:12px;opacity:0;animation:up .4s ease ${delay}s forwards">
+        <div style="width:28px;height:28px;border-radius:8px;background:${col}20;border:1px solid ${col};display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:13px;font-weight:700;color:${col};flex-shrink:0">${n}</div>
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:3px">${label}</div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--muted)">${detail}</div>
+        </div>
+      </div>`).join('')}
+    </div>
+    <div class="eq" ${fi(.65)}>Attention = softmax( Q · Kᵀ / √d_k ) · V</div>
+  </div>`;
+}
+
+function rB1(){
+  // Interactive step-through of matrix building
+  let step = 0;
+  const toks = ['The','cat','sat'];
+  const rawScores = [[2.1,-0.4,0.8],[-0.3,3.2,0.1],[0.6,2.8,1.4]];
+  const sqrtD = 8;
+  const scaled = rawScores.map(r=>r.map(v=>+(v/sqrtD).toFixed(2)));
+  // softmax
+  function softmax(row){const m=Math.max(...row);const e=row.map(v=>Math.exp(v-m));const s=e.reduce((a,b)=>a+b,0);return e.map(v=>+(v/s).toFixed(2))}
+  const attn = scaled.map(softmax);
+
+  const stepData = [
+    {title:'Raw Q·K dot products', sub:'Score[i][j] = Q_i · K_j (higher = more relevant)', matrix: rawScores, fmt:v=>v.toFixed(1), bgFn:(v,matrix)=>{const max=Math.max(...matrix.flat());return `rgba(155,127,250,${Math.max(0,(v/max))*.8})`}, txFn:v=>Math.abs(v)>1.5?'#fff':'var(--text)'},
+    {title:'After scaling ÷ √d (÷8)', sub:'Prevents numbers from getting too large for softmax', matrix: scaled, fmt:v=>v.toFixed(2), bgFn:(v,matrix)=>{const max=Math.max(...matrix.flat());return `rgba(77,158,255,${Math.max(0,(v/max))*.8})`}, txFn:v=>Math.abs(v)>.2?'#fff':'var(--text)'},
+    {title:'After softmax (each row sums to 1)', sub:'Now these are attention weights — percentages!', matrix: attn, fmt:v=>v.toFixed(2), bgFn:(v)=>`rgba(245,166,35,${v*.9})`, txFn:v=>v>.45?'#000':'var(--text)'},
+  ];
+
+  function drawMatrix(sd){
+    const m = sd.matrix;
+    let html = `<div style="display:flex;gap:4px;margin-bottom:4px;padding-left:52px">`;
+    html += toks.map(t=>`<div style="width:60px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--teal)">${t}</div>`).join('');
+    html += `</div>`;
+    m.forEach((row,i)=>{
+      html += `<div style="display:flex;gap:4px;align-items:center;margin-bottom:4px">`;
+      html += `<div style="width:48px;font-family:var(--mono);font-size:11px;color:var(--amber);text-align:right;padding-right:6px">${toks[i]}</div>`;
+      row.forEach((v,j)=>{
+        html += `<div style="width:60px;height:52px;border-radius:7px;background:${sd.bgFn(v,m)};color:${sd.txFn(v)};display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;font-weight:700;animation:popIn .35s ease ${(i*3+j)*.07}s both">${sd.fmt(v)}</div>`;
+      });
+      html += `</div>`;
+    });
+    return html;
+  }
+
+  function updateViz(){
+    const sd = stepData[step];
+    document.getElementById('mat-area').innerHTML = drawMatrix(sd);
+    document.getElementById('step-title').textContent = sd.title;
+    document.getElementById('step-sub').textContent = sd.sub;
+    document.querySelectorAll('.sstep').forEach((el,i)=>{
+      el.style.borderColor = i===step?'var(--amber)':'var(--border)';
+      el.style.color = i===step?'var(--amber)':'var(--muted)';
+      el.style.background = i===step?'var(--amber-dim)':'transparent';
+    });
+    document.getElementById('sprev').disabled = step===0;
+    document.getElementById('snext').disabled = step===stepData.length-1;
+  }
+
+  document.getElementById('viz').innerHTML += `
+  <div class="center">
+    <div ${fi(.05)}><div class="bdg t">building the attention matrix — interactive</div></div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;justify-content:center" ${fi(.1)}>
+      ${stepData.map((sd,i)=>`<div class="sstep" onclick="setStep(${i})" style="font-family:var(--mono);font-size:11px;padding:5px 14px;border-radius:20px;border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:all .2s">${i+1}. ${['Raw scores','÷ √d','softmax'][i]}</div>`).join('')}
+    </div>
+    <div id="step-title" style="font-size:14px;font-weight:600;color:var(--text);text-align:center" ${fi(.15)}>Raw Q·K dot products</div>
+    <div id="step-sub" style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:10px" ${fi(.2)}>Score[i][j] = Q_i · K_j (higher = more relevant)</div>
+    <div id="mat-area" ${fi(.25)}></div>
+    <div style="display:flex;gap:12px;margin-top:10px" ${fi(.3)}>
+      <button id="sprev" onclick="setStep(${0}-1)" style="font-family:var(--mono);font-size:11px;padding:6px 16px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer" disabled>← prev</button>
+      <button id="snext" onclick="setStep(${0}+1)" style="font-family:var(--mono);font-size:11px;padding:6px 16px;border-radius:7px;border:1px solid var(--amber);background:var(--amber-dim);color:var(--amber);cursor:pointer">next →</button>
+    </div>
+  </div>`;
+
+  window.setStep = function(i){
+    if(i<0||i>=stepData.length)return;
+    step=i;updateViz();
+    document.getElementById('sprev').setAttribute('onclick',`setStep(${i-1})`);
+    document.getElementById('snext').setAttribute('onclick',`setStep(${i+1})`);
+  };
+  setTimeout(()=>updateViz(),100);
+}
+
+function rB2(){
+  // Show: attention weights × V → output blend
+  const weights = [0.05, 0.72, 0.23];
+  const toks = ['The','cat','sat'];
+  const cols = ['var(--muted)','var(--amber)','var(--teal)'];
+
+  document.getElementById('viz').innerHTML += `
+  <div class="center">
+    <div ${fi(.05)}><div class="bdg t">from attention weights → output vector</div></div>
+    <div ${fi(.1)} style="font-size:13px;color:var(--muted);text-align:center">
+      Computing the output for <span style="color:var(--teal);font-weight:600">"sat"</span>: a weighted blend of all Value vectors
+    </div>
+    <!-- Blend formula -->
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:6px" ${fi(.18)}>
+      ${weights.map((w,i)=>`
+      <div style="display:flex;align-items:center;gap:8px;opacity:0;animation:up .4s ease ${.18+i*.15}s forwards">
+        <div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${cols[i]}">${w}</div>
+        <div style="font-size:13px;color:var(--muted)">×</div>
+        <div style="border:1px solid ${cols[i]};border-radius:8px;padding:8px 14px;background:${cols[i]}15">
+          <div style="font-family:var(--mono);font-size:12px;font-weight:600;color:${cols[i]}">V_${toks[i]}</div>
+          <div style="font-size:11px;color:var(--muted)">value vector</div>
+        </div>
+        ${i<weights.length-1?`<div style="font-size:16px;color:var(--muted)">+</div>`:''}
+      </div>`).join('')}
+      <div style="font-size:16px;color:var(--muted);opacity:0;animation:up .4s ease .7s forwards">=</div>
+      <div style="opacity:0;animation:up .4s ease .75s forwards">
+        <div style="border:2px solid var(--teal);border-radius:10px;padding:10px 18px;background:var(--teal-dim);animation:gteal 2s infinite">
+          <div style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--teal)">output_sat</div>
+          <div style="font-size:11px;color:var(--muted)">contextual vector</div>
+        </div>
+      </div>
+    </div>
+    <!-- What this means semantically -->
+    <div style="width:100%;max-width:540px;margin-top:8px" ${fi(.9)}>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--teal);letter-spacing:.1em;margin-bottom:8px">WHAT THIS MEANS SEMANTICALLY</div>
+      ${[
+        {w:'0.05 × V_The', col:'var(--muted)', desc:'5% of output comes from "The" — mostly ignored (just an article)'},
+        {w:'0.72 × V_cat', col:'var(--amber)', desc:'72% from "cat" — the verb absorbs its subject\'s meaning. "sat" now knows a cat is sitting.'},
+        {w:'0.23 × V_sat', col:'var(--teal)', desc:'23% from "sat" itself — keeps its own verb identity'},
+      ].map(({w,col,desc},i)=>`
+      <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:8px;opacity:0;animation:up .4s ease ${.9+i*.12}s forwards">
+        <div style="font-family:var(--mono);font-size:12px;color:${col};font-weight:600;width:100px;flex-shrink:0">${w}</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.5">${desc}</div>
+      </div>`).join('')}
+    </div>
+    <div class="eq" ${fi(1.35)}>output_i = Σ_j  attention_weight[i][j] × V_j</div>
+  </div>`;
+}
+
+/* ════════════════════════════════════════════════
+   TOPIC C: KV CACHE DEEP DIVE
+════════════════════════════════════════════════ */
+
+function rC0(){
+  document.getElementById('viz').innerHTML += `
+  <div class="center">
+    <div ${fi(.05)}><div class="bdg b">why Q changes but K and V don't</div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;width:100%;max-width:600px;margin-top:8px">
+      ${[
+        {letter:'Q',name:'Query',col:'var(--teal)',bg:'var(--teal-dim)',cached:false,reason:'Depends on NEW token position. Always changes.',icon:'🔄'},
+        {letter:'K',name:'Key',col:'var(--amber)',bg:'var(--amber-dim)',cached:true,reason:'Depends only on past token + its position. Never changes once set.',icon:'✓'},
+        {letter:'V',name:'Value',col:'var(--purple)',bg:'var(--purple-dim)',cached:true,reason:'Depends only on past token + its position. Never changes once set.',icon:'✓'},
+      ].map(({letter,name,col,bg,cached,reason,icon},i)=>`
+      <div style="border:1px solid ${col};border-radius:12px;background:${bg};padding:14px 12px;text-align:center;opacity:0;animation:popIn .4s ease ${.1+i*.15}s forwards">
+        <div style="font-family:var(--mono);font-size:28px;font-weight:700;color:${col};margin-bottom:6px">${letter}</div>
+        <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:8px">${name}</div>
+        <div style="border-radius:20px;padding:4px 10px;background:${cached?'rgba(74,222,128,.15)':'rgba(255,107,107,.15)'};border:1px solid ${cached?'var(--green)':'var(--red)'};font-family:var(--mono);font-size:10px;color:${cached?'var(--green)':'var(--red)'};margin-bottom:8px">${icon} ${cached?'CACHED':'NOT CACHED'}</div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.5">${reason}</div>
+      </div>`).join('')}
+    </div>
+    <div ${fi(.6)} style="width:100%;max-width:580px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--blue);letter-spacing:.1em;margin-bottom:8px">GENERATING TOKEN 100 — WHAT ACTUALLY HAPPENS</div>
+      <div style="background:var(--bg3);border-radius:10px;border:1px solid var(--border);padding:14px 18px;font-family:var(--mono);font-size:12px;line-height:1.9">
+        <div style="color:var(--teal)">Q₁₀₀ = x₁₀₀ · W_Q  <span style="color:var(--muted)">← compute fresh (new token)</span></div>
+        <div style="color:var(--amber)">K₀..₉₉  <span style="color:var(--muted)">← load from cache (no recompute!)</span></div>
+        <div style="color:var(--purple)">V₀..₉₉  <span style="color:var(--muted)">← load from cache (no recompute!)</span></div>
+        <div style="color:var(--text)">attention = softmax(Q₁₀₀ · [K₀..₉₉]ᵀ / √d) · [V₀..₉₉]</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function rC1(){
+  // Animated KV cache filling visualization
+  document.getElementById('viz').innerHTML += `
+  <div class="center">
+    <div ${fi(.05)}><div class="bdg b">KV cache filling token by token</div></div>
+    <div id="cache-anim" style="width:100%;max-width:600px;margin-top:8px">
+      <div ${fi(.1)} style="display:flex;gap:12px;align-items:flex-start;justify-content:center;flex-wrap:wrap">
+        <!-- K cache -->
+        <div style="flex:1;min-width:180px">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--amber);letter-spacing:.1em;margin-bottom:8px">K CACHE</div>
+          <div id="kcache" style="display:flex;flex-direction:column;gap:4px;min-height:120px"></div>
+        </div>
+        <!-- V cache -->
+        <div style="flex:1;min-width:180px">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--purple);letter-spacing:.1em;margin-bottom:8px">V CACHE</div>
+          <div id="vcache" style="display:flex;flex-direction:column;gap:4px;min-height:120px"></div>
+        </div>
+        <!-- New Q -->
+        <div style="flex:1;min-width:140px">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--teal);letter-spacing:.1em;margin-bottom:8px">NEW Q (fresh)</div>
+          <div id="qcur" style="display:flex;flex-direction:column;gap:4px"></div>
+        </div>
+      </div>
+      <!-- Progress -->
+      <div ${fi(.15)} style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center">
+        <button onclick="animStep(-1)" style="font-family:var(--mono);font-size:11px;padding:5px 14px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer">reset</button>
+        <button id="anim-btn" onclick="animStep(1)" style="font-family:var(--mono);font-size:11px;padding:5px 18px;border-radius:7px;border:1px solid var(--blue);background:var(--blue-dim);color:var(--blue);cursor:pointer">▶ generate next token</button>
+        <span id="anim-status" style="font-family:var(--mono);font-size:11px;color:var(--muted)">prompt: "The cat sat"</span>
+      </div>
+    </div>
+  </div>`;
+
+  const tokens = ['[SYS]','The','cat','sat','on','the','mat'];
+  let animCur = 3; // start after "The cat sat" prefill
+
+  function drawCache(){
+    const kc = document.getElementById('kcache');
+    const vc = document.getElementById('vcache');
+    const qc = document.getElementById('qcur');
+    if(!kc)return;
+    kc.innerHTML='';vc.innerHTML='';qc.innerHTML='';
+    for(let i=0;i<animCur;i++){
+      kc.innerHTML += `<div style="background:rgba(245,166,35,.15);border:1px solid rgba(245,166,35,.3);border-radius:5px;padding:5px 10px;font-family:var(--mono);font-size:11px;color:var(--amber);animation:slideR .3s ease ${i*.05}s both">K_${tokens[i]} ████████</div>`;
+      vc.innerHTML += `<div style="background:rgba(167,139,250,.15);border:1px solid rgba(167,139,250,.3);border-radius:5px;padding:5px 10px;font-family:var(--mono);font-size:11px;color:var(--purple);animation:slideR .3s ease ${i*.05+.05}s both">V_${tokens[i]} ████████</div>`;
+    }
+    if(animCur < tokens.length){
+      qc.innerHTML = `<div style="background:rgba(0,200,150,.12);border:2px solid var(--teal);border-radius:5px;padding:5px 10px;font-family:var(--mono);font-size:11px;color:var(--teal);animation:gteal 2s infinite">Q_${tokens[animCur]}<br><span style="font-size:9px;color:var(--muted)">computed fresh</span></div>`;
+      document.getElementById('anim-status').textContent = `generating: "${tokens[animCur]}" — ${animCur} tokens cached`;
+    } else {
+      qc.innerHTML = `<div style="font-size:11px;color:var(--muted)">[done]</div>`;
+      document.getElementById('anim-btn').disabled=true;
+      document.getElementById('anim-status').textContent = `All ${tokens.length} tokens cached. Generation complete.`;
+    }
+  }
+
+  window.animStep = function(dir){
+    if(dir===-1){animCur=3;document.getElementById('anim-btn').disabled=false;}
+    else if(animCur<tokens.length){animCur++;}
+    drawCache();
+  };
+  setTimeout(drawCache,200);
+}
+
+function rC2(){
+  document.getElementById('viz').innerHTML += `
+  <div class="center">
+    <div ${fi(.05)}><div class="bdg g">prefix caching — sharing KV across prompts</div></div>
+    <div ${fi(.1)} style="font-size:13px;color:var(--muted);text-align:center;max-width:480px">
+      Two different users, same system prompt → their KV cache for the shared prefix is <span style="color:var(--green);font-weight:600">identical</span> and can be shared
+    </div>
+    <!-- Two prompt comparison -->
+    <div style="display:flex;gap:10px;width:100%;max-width:640px;flex-wrap:wrap;justify-content:center;margin-top:6px">
+      ${[
+        {user:'User A', suffix:'What is Python?', col:'var(--teal)', d:.15},
+        {user:'User B', suffix:'Explain neural networks.', col:'var(--blue)', d:.25},
+      ].map(({user,suffix,col,d})=>`
+      <div style="flex:1;min-width:240px;border:1px solid ${col};border-radius:12px;background:${col}10;padding:14px;opacity:0;animation:up .4s ease ${d}s forwards">
+        <div style="font-family:var(--mono);font-size:11px;color:${col};margin-bottom:10px">${user}</div>
+        <div style="border-radius:7px;background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);padding:8px 10px;font-family:var(--mono);font-size:11px;color:var(--green);margin-bottom:6px;position:relative;overflow:hidden">
+          "You are a helpful assistant. Always be concise and accurate..."
+          <div style="position:absolute;top:50%;left:-100%;width:60%;height:100%;background:linear-gradient(90deg,transparent,rgba(74,222,128,.2),transparent);transform:translateY(-50%);animation:shine 2s ${d+.5}s infinite"></div>
+        </div>
+        <div style="border-radius:7px;background:${col}15;border:1px solid ${col}40;padding:8px 10px;font-family:var(--mono);font-size:11px;color:${col}">"${suffix}"</div>
+        <div style="margin-top:8px;font-size:11px;color:var(--muted)">
+          <span style="color:var(--green)">✓ Cache hit</span> for system prompt<br>
+          <span style="color:${col}">→ Only compute K,V for user part</span>
+        </div>
+      </div>`).join('')}
+    </div>
+    <!-- Cache savings diagram -->
+    <div style="width:100%;max-width:540px;margin-top:8px" ${fi(.5)}>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.1em;margin-bottom:6px">COMPUTATION COST</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${[
+          {label:'Without prefix cache', toks:1000, cached:0, col:'var(--red)'},
+          {label:'With prefix cache (900-token sys prompt)', toks:1000, cached:900, col:'var(--green)'},
+        ].map(({label,toks,cached,col})=>`
+        <div>
+          <div style="font-size:12px;color:var(--text);margin-bottom:4px">${label}</div>
+          <div style="height:24px;border-radius:5px;background:var(--bg3);overflow:hidden;position:relative">
+            <div style="height:100%;border-radius:5px;background:${col};width:${(toks-cached)/toks*100}%;min-width:4px;transition:width .8s ease;display:flex;align-items:center;padding-left:8px">
+              <span style="font-family:var(--mono);font-size:11px;color:#000;font-weight:700;white-space:nowrap">${toks-cached} tokens computed</span>
+            </div>
+            ${cached>0?`<div style="position:absolute;top:0;left:${(toks-cached)/toks*100}%;height:100%;right:0;display:flex;align-items:center;padding-left:8px"><span style="font-family:var(--mono);font-size:11px;color:var(--green)">✓ ${cached} cached (free!)</span></div>`:''}
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>
+    <div ${fi(.8)} style="border:1px solid var(--green);border-radius:8px;padding:10px 16px;background:var(--green-dim);font-size:12px;color:var(--muted);max-width:500px;text-align:center">
+      <span style="color:var(--green);font-weight:600">Real-world impact:</span> Anthropic charges ~10% for cached tokens. A 10,000-token system prompt shared across 1M requests saves ~$900 vs $1,000 at standard pricing.
+    </div>
+  </div>`;
+}
+
+function rC3(){
+  document.getElementById('viz').innerHTML += `
+  <div class="center">
+    <div ${fi(.05)}><div class="bdg b">prefill → decode → eviction lifecycle</div></div>
+    <div style="width:100%;max-width:640px;margin-top:4px">
+      <!-- Timeline -->
+      <div style="display:flex;gap:0;width:100%;margin-bottom:20px" ${fi(.1)}>
+        ${[
+          {phase:'PREFILL',desc:'Process entire input prompt in parallel. Fill the KV cache.',col:'var(--purple)',w:'35%'},
+          {phase:'DECODE',desc:'Generate one token at a time. Read cache, append new K/V.',col:'var(--blue)',w:'45%'},
+          {phase:'EVICT',desc:'Context full? Drop oldest K/V entries.',col:'var(--red)',w:'20%'},
+        ].map(({phase,desc,col,w})=>`
+        <div style="width:${w};padding:10px 12px;background:${col}15;border-top:2px solid ${col};position:relative">
+          <div style="font-family:var(--mono);font-size:10px;color:${col};letter-spacing:.08em;margin-bottom:4px">${phase}</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.4">${desc}</div>
+        </div>`).join('')}
+      </div>
+
+      <!-- Bottleneck comparison -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px" ${fi(.3)}>
+        ${[
+          {phase:'Prefill', bound:'Compute-bound', reason:'Big matrix multiplications dominate', col:'var(--purple)', icon:'⚡'},
+          {phase:'Decode', bound:'Memory-bound', reason:'Reading huge KV cache from GPU RAM', col:'var(--blue)', icon:'💾'},
+        ].map(({phase,bound,reason,col,icon})=>`
+        <div style="border:1px solid ${col};border-radius:10px;background:${col}10;padding:12px">
+          <div style="font-family:var(--mono);font-size:11px;color:${col};margin-bottom:4px">${icon} ${phase}</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">${bound}</div>
+          <div style="font-size:12px;color:var(--muted)">${reason}</div>
+        </div>`).join('')}
+      </div>
+
+      <!-- PagedAttention mention -->
+      <div style="border:1px solid rgba(74,222,128,.3);border-radius:10px;background:var(--green-dim);padding:14px 18px" ${fi(.5)}>
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <div style="font-size:24px;flex-shrink:0">📄</div>
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--green);margin-bottom:4px">PagedAttention (vLLM)</div>
+            <div style="font-size:12px;color:var(--muted);line-height:1.6">Like virtual memory in an OS — KV cache is split into <strong style="color:var(--text)">non-contiguous pages</strong>. Different requests share pages for identical prefixes. Enables 2-4× higher GPU throughput vs naïve KV allocation. This is how production APIs serve hundreds of users simultaneously.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ── BOOT ─────────────────────────────────────────────────── */
+render();
+</script>
+</body>
+</html>

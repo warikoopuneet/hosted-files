@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How Transformers Work</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Sora:wght@300;400;500;600;700&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0e1a;--bg2:#0f1425;--bg3:#161d32;--bg4:#1c2440;
+  --teal:#00c896;--teal-dim:rgba(0,200,150,0.1);
+  --amber:#f5a623;--amber-dim:rgba(245,166,35,0.1);
+  --blue:#4d9eff;--blue-dim:rgba(77,158,255,0.1);
+  --purple:#a78bfa;--purple-dim:rgba(167,139,250,0.1);
+  --pink:#f472b6;--pink-dim:rgba(244,114,182,0.1);
+  --red:#ff6b6b;--red-dim:rgba(255,107,107,0.1);
+  --text:#dde3f0;--muted:#7a849e;--border:rgba(255,255,255,0.07);
+  --mono:'IBM Plex Mono',monospace;--sans:'Sora',sans-serif;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;display:flex;flex-direction:column;align-items:center;overflow-x:hidden}
+
+.hdr{width:100%;padding:14px 28px;border-bottom:1px solid var(--border);background:var(--bg2);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:99}
+.hdr-left{display:flex;flex-direction:column;gap:2px}
+.hdr-title{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--teal)}
+.hdr-sub{font-family:var(--mono);font-size:10px;color:var(--muted)}
+.dots{display:flex;gap:6px;align-items:center;flex-wrap:wrap;max-width:340px;justify-content:flex-end}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);cursor:pointer;transition:all .3s;flex-shrink:0}
+.dot.done{background:rgba(0,200,150,.35);border-color:var(--teal)}
+.dot.active{background:var(--teal);box-shadow:0 0 10px var(--teal);transform:scale(1.4);border-color:var(--teal)}
+
+.main{width:100%;max-width:860px;padding:32px 22px 0}
+.s-label{font-family:var(--mono);font-size:10px;color:var(--teal);letter-spacing:.14em;text-transform:uppercase;margin-bottom:6px;opacity:0;animation:up .4s ease .05s forwards}
+.s-title{font-size:26px;font-weight:700;line-height:1.2;margin-bottom:8px;opacity:0;animation:up .4s ease .1s forwards}
+.s-sub{font-size:14px;color:var(--muted);line-height:1.65;max-width:620px;margin-bottom:28px;opacity:0;animation:up .4s ease .15s forwards}
+
+.viz{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:32px 28px;margin-bottom:20px;min-height:240px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;opacity:0;animation:up .5s ease .2s forwards}
+.viz-glow{position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--teal) 40%,transparent);opacity:.35}
+
+.cards{display:grid;grid-template-columns:1fr;gap:12px;margin-bottom:24px;opacity:0;animation:up .4s ease .3s forwards}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 20px}
+.card.tl{border-left:2px solid var(--teal)}
+.card.al{border-left:2px solid var(--amber)}
+.card.bl{border-left:2px solid var(--blue)}
+.card.pl{border-left:2px solid var(--purple)}
+.card.rl{border-left:2px solid var(--red)}
+.card-hd{font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:7px;font-family:var(--mono)}
+.card p{font-size:13px;color:var(--muted);line-height:1.7}
+.card p strong{color:var(--text);font-weight:600}
+.card p em{color:var(--teal);font-style:normal;font-weight:500}
+
+.nav{display:flex;justify-content:space-between;align-items:center;padding:0 0 36px;opacity:0;animation:up .4s ease .35s forwards}
+.btn{font-family:var(--sans);font-size:13px;font-weight:500;padding:9px 20px;border-radius:8px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);transition:all .2s}
+.btn:hover:not(:disabled){border-color:var(--teal);color:var(--teal)}
+.btn:disabled{opacity:.3;cursor:not-allowed}
+.btn-nx{background:var(--teal);color:#000;border-color:var(--teal);font-weight:700;padding:10px 28px}
+.btn-nx:hover:not(:disabled){box-shadow:0 0 22px rgba(0,200,150,.4);background:#00e0aa}
+.btn-nx:disabled{background:var(--bg3);color:var(--muted);border-color:var(--border);box-shadow:none}
+.ct{font-family:var(--mono);font-size:11px;color:var(--muted)}
+
+@keyframes up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes gteal{0%,100%{box-shadow:0 0 6px rgba(0,200,150,.5)}50%{box-shadow:0 0 18px rgba(0,200,150,.9)}}
+@keyframes gamber{0%,100%{box-shadow:0 0 6px rgba(245,166,35,.4)}50%{box-shadow:0 0 14px rgba(245,166,35,.8)}}
+@keyframes drawL{from{stroke-dashoffset:300}to{stroke-dashoffset:0}}
+@keyframes sclIn{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
+
+.center{display:flex;flex-direction:column;align-items:center;gap:14px;width:100%}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center}
+.bdg{display:inline-flex;align-items:center;font-family:var(--mono);font-size:10px;letter-spacing:.1em;padding:3px 12px;border-radius:20px;border:1px solid;text-transform:uppercase}
+.bdg.t{border-color:var(--teal);color:var(--teal);background:var(--teal-dim)}
+.bdg.a{border-color:var(--amber);color:var(--amber);background:var(--amber-dim)}
+.bdg.b{border-color:var(--blue);color:var(--blue);background:var(--blue-dim)}
+.bdg.p{border-color:var(--purple);color:var(--purple);background:var(--purple-dim)}
+.bdg.pk{border-color:var(--pink);color:var(--pink);background:var(--pink-dim)}
+.tok{font-family:var(--mono);font-size:14px;font-weight:600;padding:9px 16px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);transition:all .3s}
+.tok.ht{border-color:var(--teal);color:var(--teal);background:var(--teal-dim)}
+.tok.ha{border-color:var(--amber);color:var(--amber);background:var(--amber-dim)}
+.tok.hb{border-color:var(--blue);color:var(--blue);background:var(--blue-dim)}
+.tok.hp{border-color:var(--purple);color:var(--purple);background:var(--purple-dim)}
+.eq{font-family:var(--mono);font-size:12px;color:var(--teal);background:var(--bg3);padding:6px 16px;border-radius:6px;border:1px solid rgba(0,200,150,.18);display:inline-block}
+
+.ltabs{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.ltab{font-family:var(--mono);font-size:11px;padding:5px 16px;border-radius:20px;border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:all .2s;background:transparent}
+.ltab.on{border-color:var(--amber);color:var(--amber);background:var(--amber-dim)}
+.lvl-bar{height:3px;border-radius:2px;background:var(--bg3);margin-bottom:16px;overflow:hidden;width:100%;max-width:500px}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-left">
+    <div class="hdr-title">How Transformers Work</div>
+    <div class="hdr-sub" id="sind">Beginner → Advanced · Step by step</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <a href="transformer_deepdive.html" style="font-family:var(--mono);font-size:11px;padding:5px 14px;border-radius:6px;border:1px solid var(--amber);color:var(--amber);background:rgba(245,166,35,0.08);text-decoration:none;white-space:nowrap;transition:all .2s" onmouseover="this.style.background='rgba(245,166,35,0.18)'" onmouseout="this.style.background='rgba(245,166,35,0.08)'">Deep Dive →</a>
+    <div class="dots" id="dots"></div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="s-label" id="slabel"></div>
+  <div class="s-title" id="stitle"></div>
+  <div class="s-sub"   id="ssub"></div>
+  <div class="viz"     id="viz"><div class="viz-glow"></div></div>
+  <div class="cards"   id="cards"></div>
+  <div class="nav">
+    <button class="btn" id="bbk" onclick="prev()">← Back</button>
+    <span class="ct" id="sct"></span>
+    <button class="btn btn-nx" id="bnx" onclick="next()">Next →</button>
+  </div>
+</div>
+
+<script>
+const STAGES=[
+{label:"Overview — The Big Picture",title:"What does a transformer actually do?",sub:"Let's start with the plain-English version before any math.",render:s0,
+cards:[
+{c:"tl",hd:"teal",head:"The one-line job",body:"A transformer reads some text and <strong>predicts the next word</strong>. That's the whole task. Do this billions of times during training and you get ChatGPT, Claude, or Gemini. They're all extremely good next-word predictors."},
+{c:"al",hd:"amber",head:"Why it's revolutionary",body:"What makes transformers special is <strong>attention</strong> — the ability to look at every word in context at the same time. The word 'bank' in 'river bank' vs 'bank account' gets understood differently because of surrounding words."},
+{c:"bl",hd:"blue",head:"What we'll trace",body:"We'll follow the sentence <em>'The cat sat'</em> through every step — from raw text all the way to the model predicting the next word. Click through each step at your own pace."}
+]},
+
+{label:"Step 1 — Tokenization",title:"Text gets chopped into tokens",sub:"The model can't read English directly. It first breaks text into small pieces called tokens.",render:s1,
+cards:[
+{c:"tl",hd:"teal",head:"What is a token?",body:"A token is usually a word or part of a word. 'cat' is one token. 'transformers' might split into two: <strong>'transform' + '##ers'</strong>. Spaces and punctuation are also tokens. GPT-4 uses roughly 100,000 unique token types."},
+{c:"al",hd:"amber",head:"Why not use letters or full words?",body:"Letters = too many steps for a sentence. Full words = millions of unique items to track. Tokens are the <strong>Goldilocks middle ground</strong> — a manageable vocabulary, efficient sequences, and rare words just get split up."}
+]},
+
+{label:"Step 2 — Token IDs",title:"Each token becomes a number",sub:"The model only understands numbers. Every token gets a unique integer from a big lookup table.",render:s2,
+cards:[
+{c:"tl",hd:"teal",head:"The vocabulary dictionary",body:"Think of a giant dictionary: <strong>token string → integer</strong>. 'The' might be #1234, 'cat' might be #12312. After this step, the sentence becomes <strong>[1234, 12312, 7378]</strong>. Text is completely gone — only integers from here on."},
+{c:"al",hd:"amber",head:"No meaning yet",body:"At this stage the model knows <em>nothing</em> about what these words mean. The number 1234 is no more meaningful than 1235. That changes in the next step."}
+]},
+
+{label:"Step 3 — Embeddings",title:"Numbers become rich meaning-vectors",sub:"Each integer is swapped for a list of ~512 floats that actually encode what the word means.",render:s3,
+cards:[
+{c:"tl",hd:"teal",head:"What's an embedding?",body:"Imagine a map where every word has coordinates. <strong>Similar words cluster together</strong>: 'cat', 'dog', 'kitten' sit near each other. 'Paris', 'London', 'Tokyo' form another cluster. An embedding is exactly this — just in 512 dimensions instead of 2."},
+{c:"pl",hd:"purple",head:"They're learned, not hand-coded",body:"Nobody wrote these coordinates by hand. The model <strong>learned</strong> them by reading billions of sentences. Words that appear in similar contexts end up with similar vectors. This happens automatically."},
+{c:"al",hd:"amber",head:"Famous example: king − man + woman ≈ queen",body:"The embedding vectors literally encode analogies. Subtract the 'man' direction, add the 'woman' direction, and you land near 'queen'. This <em>emerges on its own</em> from training — no one programmed it in."}
+]},
+
+{label:"Step 4 — Position",title:"Word order is injected with wave patterns",sub:"Transformers read all tokens at once in parallel — so we must explicitly tell them which word came first, second, third...",render:s4,
+cards:[
+{c:"tl",hd:"teal",head:"The problem: no built-in order",body:"'Dog bites man' and 'Man bites dog' have the same words but completely different meanings. Without position info, a transformer would treat them identically. We need to encode <strong>where each token sits</strong> in the sequence."},
+{c:"al",hd:"amber",head:"The fix: add a unique wave pattern to each position",body:"A unique pattern of sine waves is <strong>added</strong> to each token's embedding. Position 0 gets one pattern, position 1 a slightly different one, and so on. Each position gets a fingerprint the model learns to read."},
+{c:"bl",hd:"blue",head:"Why sine waves specifically?",body:"Sine waves at different frequencies let the model detect both <strong>absolute position</strong> (this is token 3) and <strong>relative position</strong> (A is 2 steps before B). They also generalize to sequences longer than anything seen during training."}
+]},
+
+{label:"Step 5 — Self-Attention",title:"Every word looks at every other word",sub:"This is the magic of transformers. Each token figures out which other tokens matter for its own meaning.",render:s5,
+cards:[
+{c:"tl",hd:"teal",head:"The human reading analogy",body:"Imagine reading: 'The <strong>bank</strong> by the river was steep.' When you hit 'bank', your brain immediately glances back at 'river' to understand which kind of bank. <strong>Attention does exactly this</strong> — each word scans the rest of the sentence for helpful context."},
+{c:"al",hd:"amber",head:"Attention = relevance score",body:"For every pair of words, the model asks: <em>how relevant is word A for understanding word B?</em> High score = pay a lot of attention. Low score = mostly ignore. These scores then blend meaning from relevant words into each token."},
+{c:"bl",hd:"blue",head:"'sat' learns it needs 'cat'",body:"In 'The cat sat', the word 'sat' (a verb needing a subject) pays high attention to 'cat' (the subject). It pays low attention to 'The'. After attention, 'sat' now <em>knows</em> a cat is doing the sitting."}
+]},
+
+{label:"Step 6 — Query, Key, Value (QKV)",title:"The library card catalog analogy",sub:"Here's exactly how attention scores are calculated — using three simple roles every token plays.",render:s6,
+cards:[
+{c:"tl",hd:"teal",head:"The library analogy (beginner)",body:"You walk into a library with a <strong>Query</strong>: 'books about space travel'. Every book has a <strong>Key</strong> on its spine — a short description of what it's about. The librarian scores how well your query matches each key. You then get the matching books' <strong>Values</strong> (actual content)."},
+{c:"al",hd:"amber",head:"In a transformer",body:"Each token creates 3 vectors. <strong>Query (Q)</strong> = what context am I looking for? <strong>Key (K)</strong> = what context do I offer? <strong>Value (V)</strong> = what meaning do I contribute? The token 'sat' sends a Query, each other word responds with a Key, and high matches pull in that word's Value."},
+{c:"pl",hd:"purple",head:"Semantic meaning of QKV for 'sat'",body:"'sat' is a verb that needs a subject. Its Q asks: 'who is doing this?'. 'cat' replies with a K that says: 'I'm a subject-noun'. High match → 'sat' absorbs 'cat's V (feline concepts, subject role). After this, 'sat' contains a blend of its own meaning <em>plus context from 'cat'</em>."},
+{c:"bl",hd:"blue",head:"Google Search is basically this",body:"Your search query = <strong>Q</strong>. Each webpage's title/description = <strong>K</strong>. The actual page content = <strong>V</strong>. Search ranks pages by Q·K similarity, then returns their V. Transformers do this for every word, against every other word, all at once."}
+]},
+
+{label:"Step 7 — Attention Matrix",title:"The attention matrix, from simple to advanced",sub:"Let's see what the QKV scores actually look like — with three levels of explanation.",render:s7,
+cards:[
+{c:"tl",hd:"teal",head:"Level 1: What you're looking at",body:"The matrix is a grid. Each row is a word <em>asking</em> and each column is a word <em>being asked</em>. A bright cell means 'this word paid a lot of attention to that word.' <strong>Bright = high influence. Dark = ignored.</strong>"},
+{c:"al",hd:"amber",head:"Level 2: How the scores are computed",body:"score(i→j) = dot product of token i's <strong>Q</strong> with token j's <strong>K</strong>, divided by √dimension. Division prevents numbers getting too large. Then softmax turns each row into percentages that sum to 1. <strong>0.72 means 72% of attention budget goes to that word.</strong>"},
+{c:"pl",hd:"purple",head:"Level 3: Multi-head attention",body:"One attention head might track subject-verb pairs. Another might track pronoun references. Another might track adjective-noun links. <strong>Multi-head attention</strong> runs 8–16 of these in parallel with different learned weights, each discovering different linguistic relationships, then concatenates everything."}
+]},
+
+{label:"Step 8 — The KV Cache",title:"Why Key and Value get cached for speed",sub:"This is the engineering trick that makes ChatGPT fast when generating long responses.",render:s8,
+cards:[
+{c:"rl",hd:"red",head:"The slow way (no cache)",body:"The model generates one token at a time. Without a cache, each new token would require re-computing <strong>K and V vectors for every previous token</strong> from scratch. For a 1000-token response: 1000 × 1000 = 1 million redundant computations."},
+{c:"tl",hd:"teal",head:"The key insight",body:"Once a token is generated, its K and V vectors <strong>never change</strong>. 'The' will always produce the same K and V regardless of what comes after. Only the <strong>Query is new</strong> each step — it's asking 'given everything before me, what's relevant?'"},
+{c:"bl",hd:"blue",head:"The KV Cache solution",body:"Store all past K and V vectors in memory. Each new token only needs to: <strong>1)</strong> compute its own Q, K, V, <strong>2)</strong> retrieve all cached K, V, <strong>3)</strong> compute attention. This turns O(n²) recomputation into O(n) — dramatically faster for long texts."},
+{c:"pl",hd:"purple",head:"The real-world tradeoff",body:"The KV cache eats a lot of <strong>GPU memory</strong>. A model with a 128k-token context window needs gigabytes just for the cache. This is a primary reason why long-context models are expensive to run — you're paying for all that stored K and V memory."}
+]},
+
+{label:"Step 9 — Feed-Forward Network",title:"Each token thinks independently",sub:"After attention mixes context across tokens, each token gets processed by its own small neural network.",render:s9,
+cards:[
+{c:"tl",hd:"teal",head:"What it does",body:"The feed-forward network (FFN) is applied to <strong>each token independently</strong> — the same mini neural net runs in parallel on all tokens. It adds non-linearity, the ability to express complex patterns beyond simple combinations."},
+{c:"al",hd:"amber",head:"Where 'knowledge' is stored",body:"Researchers believe FFN layers store <strong>factual knowledge</strong> — things like 'Paris is the capital of France'. Attention = cross-word reasoning. FFN = per-token memory. Attention figures out relationships; FFN looks up stored facts."},
+{c:"bl",hd:"blue",head:"The structure",body:"Two linear layers with ReLU between them: <strong>Linear(512 → 2048) → ReLU → Linear(2048 → 512)</strong>. The hidden layer is 4× wider, giving the model more processing capacity. This expand-then-contract pattern appears throughout modern architectures."}
+]},
+
+{label:"Step 10 — Output",title:"Predicting the next token",sub:"After passing through N transformer layers, the final vector becomes probabilities over the entire vocabulary.",render:s10,
+cards:[
+{c:"tl",hd:"teal",head:"Logits → probabilities",body:"The final embedding is multiplied by the unembedding matrix to produce one score (called a <strong>logit</strong>) per vocabulary token. Softmax converts these scores into probabilities that sum to 1. The highest probability token is typically selected."},
+{c:"al",hd:"amber",head:"Temperature controls creativity",body:"<strong>Temperature</strong> scales the logits before softmax. Low temp (0.1) = always pick the top word — precise but repetitive. High temp (1.5) = more randomness, more creative but can be nonsensical. Most chatbots use 0.7–1.0."},
+{c:"bl",hd:"blue",head:"The generation loop",body:"The predicted token is appended to the input, and the <em>entire pipeline runs again</em> — token by token — until the model emits an end-of-sequence token or hits a length limit. A 200-word response runs this full pipeline roughly 270 times."}
+]}
+];
+
+let cur=0;
+
+function buildDots(){
+  const c=document.getElementById('dots');c.innerHTML='';
+  STAGES.forEach((_,i)=>{
+    const d=document.createElement('div');
+    d.className='dot'+(i<cur?' done':'')+(i===cur?' active':'');
+    d.title=STAGES[i].label;d.onclick=()=>go(i);c.appendChild(d);
+  });
+}
+function go(i){cur=i;render()}
+function next(){if(cur<STAGES.length-1){cur++;render()}}
+function prev(){if(cur>0){cur--;render()}}
+
+function fi(d){return`style="opacity:0;animation:up .4s ease ${d}s forwards"`}
+
+function render(){
+  const s=STAGES[cur];
+  document.getElementById('sind').textContent=`Step ${cur+1} of ${STAGES.length}`;
+  document.getElementById('sct').textContent=`${cur+1} / ${STAGES.length}`;
+  function sw(id,tag,cls){const o=document.getElementById(id);const n=document.createElement(tag);n.id=id;if(cls)n.className=cls;o.replaceWith(n);return n}
+  sw('slabel','div','s-label').textContent=s.label;
+  sw('stitle','div','s-title').textContent=s.title;
+  sw('ssub','div','s-sub').textContent=s.sub;
+  const v=sw('viz','div','viz');v.innerHTML='<div class="viz-glow"></div>';
+  sw('cards','div','cards');
+  document.querySelector('.nav').outerHTML=`<div class="nav" ${fi(.35)}>
+    <button class="btn" onclick="prev()" ${cur===0?'disabled':''}>← Back</button>
+    <span class="ct" id="sct">${cur+1} / ${STAGES.length}</span>
+    <button class="btn btn-nx" onclick="next()" ${cur===STAGES.length-1?'disabled':''}>Next →</button>
+  </div>`;
+  buildDots();s.render();
+  const cc=document.getElementById('cards');
+  s.cards.forEach((c,i)=>{
+    const div=document.createElement('div');
+    div.className=`card ${c.c}`;div.style=`opacity:0;animation:up .4s ease ${.3+i*.1}s forwards`;
+    const colors={teal:'var(--teal)',amber:'var(--amber)',blue:'var(--blue)',purple:'var(--purple)',red:'var(--red)'};
+    div.innerHTML=`<div class="card-hd" style="color:${colors[c.hd]}"><div style="width:7px;height:7px;border-radius:50%;background:${colors[c.hd]};flex-shrink:0"></div>${c.head}</div><p>${c.body}</p>`;
+    cc.appendChild(div);
+  });
+}
+
+/* ── STAGE RENDERS ─────────────────────────────────── */
+
+function s0(){
+  document.getElementById('viz').innerHTML+=`<div class="center">
+    <div ${fi(.05)}><div class="bdg t">the one-line summary</div></div>
+    <div ${fi(.12)} style="text-align:center">
+      <div style="font-size:34px;font-weight:700;color:var(--text);line-height:1.2">"What word<br>comes next?"</div>
+      <div style="font-size:14px;color:var(--muted);margin-top:8px">Asked billions of times during training → learns language</div>
+    </div>
+    <div ${fi(.3)} style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:6px">
+      ${['Raw text','Tokenize','Embed','+ Position','✦ Attention × N','FFN × N','Predict'].map((label,i,a)=>`
+      <div style="display:flex;align-items:center;gap:6px">
+        <div style="padding:7px 14px;border-radius:7px;border:1px solid ${i===4?'var(--amber)':i===6?'var(--teal)':'var(--border)'};background:${i===4?'var(--amber-dim)':i===6?'var(--teal-dim)':'var(--bg3)'};font-family:var(--mono);font-size:11px;color:${i===4?'var(--amber)':i===6?'var(--teal)':'var(--muted)'}">${label}</div>
+        ${i<a.length-1?'<div style="color:var(--muted);font-size:11px">→</div>':''}
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function s1(){
+  document.getElementById('viz').innerHTML+=`<div class="center">
+    <div ${fi(.05)}><div class="bdg t">tokenization</div></div>
+    <div ${fi(.1)} style="font-family:var(--mono);font-size:18px;color:var(--muted);padding:12px 24px;border-radius:10px;border:1px solid var(--border);background:var(--bg3)">"The cat sat"</div>
+    <div ${fi(.2)} style="font-size:20px;color:var(--muted);animation:pulse 2s infinite">↓</div>
+    <div class="row" style="margin-top:4px">
+      ${['The','cat','sat'].map((t,i)=>`<div class="tok ht" ${fi(.3+i*.12)}>${t}</div>`).join('')}
+    </div>
+    <div ${fi(.65)} style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap;justify-content:center">
+      ${[['3','tokens from this sentence'],['~100,000','total tokens in vocabulary'],['1–4','avg characters per token']].map(([v,l])=>`
+      <div style="text-align:center">
+        <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--teal)">${v}</div>
+        <div style="font-size:11px;color:var(--muted)">${l}</div>
+      </div>`).join('<div style="width:1px;background:var(--border)"></div>')}
+    </div>
+  </div>`;
+}
+
+function s2(){
+  const pairs=[['The',1234],['cat',12312],['sat',7378]];
+  document.getElementById('viz').innerHTML+=`<div class="center">
+    <div ${fi(.05)}><div class="bdg a">vocabulary lookup</div></div>
+    <div class="row" style="gap:36px;margin-top:8px">
+      ${pairs.map(([t,id],i)=>`
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px" ${fi(.1+i*.14)}>
+        <div class="tok">${t}</div>
+        <div style="color:var(--muted);font-size:16px;animation:pulse 2s infinite">↓</div>
+        <div style="font-family:var(--mono);font-size:26px;font-weight:700;color:var(--amber)">${id}</div>
+        <div style="font-size:10px;color:var(--muted);font-family:var(--mono)">vocab["${t}"]</div>
+      </div>`).join('')}
+    </div>
+    <div class="eq" ${fi(.6)}>input_ids = [1234, 12312, 7378]</div>
+  </div>`;
+}
+
+function s3(){
+  const cols=['var(--teal)','var(--amber)','var(--purple)'];
+  const rng=(seed,n=18)=>{let s=seed;return Array.from({length:n},()=>{s=(s*1664525+1013904223)&0xffffffff;return 14+Math.abs(s%54)})};
+  document.getElementById('viz').innerHTML+=`<div class="center">
+    <div ${fi(.05)}><div class="bdg p">embedding lookup</div></div>
+    <div class="row" style="gap:28px;align-items:flex-end;margin-top:8px">
+      ${['The','cat','sat'].map((t,i)=>`
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px" ${fi(.1+i*.14)}>
+        <div class="tok" style="border-color:${cols[i]};color:${cols[i]}">${t}</div>
+        <div style="color:var(--muted);font-size:15px">↓</div>
+        <div id="b${i}" style="display:flex;gap:2.5px;align-items:flex-end;height:72px">
+          ${rng(i*71+13).map((h,j)=>`<div style="width:9px;border-radius:2px 2px 0 0;background:${cols[i]};opacity:${.25+j*.04};height:0;transition:height .5s ease ${.3+j*.025}s" data-h="${h}"></div>`).join('')}
+        </div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">512 floats</div>
+      </div>`).join('')}
+    </div>
+    <div ${fi(.7)} style="font-size:13px;color:var(--muted);text-align:center;max-width:400px">Each bar = one number in the 512-dim vector. <strong style="color:var(--text)">Similar words have similar-looking vectors.</strong></div>
+    <div class="eq" ${fi(.85)}>E = embed_matrix[token_id]  ∈ ℝ⁵¹²</div>
+  </div>`;
+  setTimeout(()=>document.querySelectorAll('[data-h]').forEach(b=>{b.style.height=b.dataset.h+'px'}),300);
+}
+
+function s4(){
+  const mkW=(pos,col)=>{const pts=[];for(let x=0;x<=240;x+=3){const y=20+13*Math.sin((x/240)*Math.PI*4+pos*2.1);pts.push(`${x===0?'M':'L'}${x},${y}`)}return`<path d="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="2.5" opacity=".85" stroke-dasharray="300" stroke-dashoffset="300" style="animation:drawL .9s ease ${.15+pos*.15}s forwards"/>`};
+  const cols=['var(--teal)','var(--amber)','var(--purple)'];
+  document.getElementById('viz').innerHTML+=`<div class="center">
+    <div ${fi(.05)}><div class="bdg pk">positional encoding</div></div>
+    <div style="display:flex;flex-direction:column;gap:14px;width:100%;max-width:560px;margin-top:8px">
+      ${['The','cat','sat'].map((t,i)=>`
+      <div style="display:flex;align-items:center;gap:12px" ${fi(.1+i*.18)}>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--muted);width:34px;text-align:right">pos ${i}</div>
+        <div class="tok" style="border-color:${cols[i]};color:${cols[i]};width:58px;text-align:center;padding:7px">${t}</div>
+        <div style="color:var(--muted);font-size:16px;font-weight:300">+</div>
+        <svg width="240" height="42" viewBox="0 0 240 42" style="flex-shrink:0">${mkW(i,cols[i])}</svg>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">PE(pos=${i})</div>
+      </div>`).join('')}
+    </div>
+    <div class="eq" ${fi(.78)}>final_vec = Embed(token_id) + PE(position)</div>
+  </div>`;
+}
+
+function s5(){
+  document.getElementById('viz').innerHTML+=`<div class="center">
+    <div ${fi(.05)}><div class="bdg a">self-attention</div></div>
+    <div ${fi(.1)} style="font-size:13px;color:var(--muted);text-align:center">When processing <span style="color:var(--amber);font-weight:600">"sat"</span>, it scans every word to gather context</div>
+    <div style="position:relative;width:100%;max-width:500px;height:160px;margin-top:8px" ${fi(.18)}>
+      <svg width="100%" viewBox="0 0 500 160" style="position:absolute;top:0;left:0;pointer-events:none">
+        <line x1="396" y1="56" x2="80" y2="56" stroke="var(--muted)" stroke-width="2.5" opacity=".2" stroke-dasharray="350" stroke-dashoffset="350" style="animation:drawL 1s ease .5s forwards"/>
+        <text x="215" y="44" fill="var(--muted)" font-size="11" font-family="IBM Plex Mono" opacity="0" style="animation:up .4s ease 1.4s forwards">0.05</text>
+        <line x1="396" y1="56" x2="236" y2="56" stroke="var(--amber)" stroke-width="11" opacity=".75" stroke-dasharray="200" stroke-dashoffset="200" style="animation:drawL .8s ease .55s forwards"/>
+        <text x="305" y="44" fill="var(--amber)" font-size="11" font-family="IBM Plex Mono" opacity="0" style="animation:up .4s ease 1.35s forwards">0.72</text>
+        <text x="410" y="44" fill="var(--teal)" font-size="11" font-family="IBM Plex Mono" opacity="0" style="animation:up .4s ease 1.45s forwards">0.23</text>
+      </svg>
+      <div style="position:absolute;top:36px;left:54px" ${fi(.3)}><div class="tok" style="padding:8px 14px;font-size:13px">The</div></div>
+      <div style="position:absolute;top:36px;left:204px" ${fi(.35)}><div class="tok ha" style="padding:8px 14px;font-size:13px;animation:gamber 2.5s infinite">cat</div></div>
+      <div style="position:absolute;top:36px;left:370px" ${fi(.4)}><div class="tok ht" style="padding:8px 14px;font-size:13px;animation:gteal 2.5s infinite">sat</div></div>
+      <div ${fi(1.5)} style="position:absolute;bottom:8px;left:0;right:0;display:flex;gap:16px;justify-content:center;flex-wrap:wrap">
+        ${[['var(--amber)','28px','cat','high — verb found its subject'],['var(--muted)','3px','The','low — just an article'],['var(--teal)','6px','sat','moderate — self-reference']].map(([c,h,w,d])=>`
+        <div style="display:flex;align-items:center;gap:7px">
+          <div style="width:28px;height:${h};border-radius:2px;background:${c}"></div>
+          <span style="font-family:var(--mono);font-size:11px;color:${c}">${w}</span>
+          <span style="font-size:11px;color:var(--muted)">${d}</span>
+        </div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+function s6(){
+  document.getElementById('viz').innerHTML+=`<div class="center">
+    <div ${fi(.05)}><div class="bdg a">Query · Key · Value</div></div>
+    <div class="row" style="gap:12px;margin-top:8px">
+      ${[
+        {L:'Q',name:'Query',col:'var(--teal)',dim:'var(--teal-dim)',tagline:'What am I looking for?',ex:'"sat" asks: who is doing the sitting?',d:.1},
+        {L:'K',name:'Key',col:'var(--amber)',dim:'var(--amber-dim)',tagline:'What do I offer?',ex:'"cat" says: I am a subject-noun',d:.2},
+        {L:'V',name:'Value',col:'var(--purple)',dim:'var(--purple-dim)',tagline:'What do I emit?',ex:'"cat" gives: feline, subject meaning…',d:.3},
+      ].map(({L,name,col,dim,tagline,ex,d})=>`
+      <div style="border:1px solid ${col};border-radius:12px;background:${dim};padding:16px;width:196px" ${fi(d)}>
+        <div style="font-family:var(--mono);font-size:30px;font-weight:700;color:${col};margin-bottom:4px">${L}</div>
+        <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px">${name}</div>
+        <div style="font-size:13px;color:${col};font-weight:500;margin-bottom:8px">${tagline}</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.5;border-top:1px solid rgba(255,255,255,.06);padding-top:8px">${ex}</div>
+      </div>`).join('')}
+    </div>
+    <div class="row" style="gap:8px;margin-top:6px" ${fi(.5)}>
+      <div class="eq">score(i→j) = Q_i · K_j / √d</div>
+      <div style="font-size:12px;color:var(--muted)">→ softmax → weighted sum of all V</div>
+    </div>
+    <div ${fi(.65)} style="border:1px solid var(--border);border-radius:10px;padding:12px 18px;background:var(--bg3);max-width:460px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--blue);letter-spacing:.1em;margin-bottom:8px">GOOGLE SEARCH ANALOGY</div>
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:13px">
+        <span style="color:var(--teal);font-weight:600">Your search query</span><span style="color:var(--muted)">= Q (what you want)</span>
+        <span style="color:var(--amber);font-weight:600">Page title/description</span><span style="color:var(--muted)">= K (what each page offers)</span>
+        <span style="color:var(--purple);font-weight:600">Actual page content</span><span style="color:var(--muted)">= V (what you get back)</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+function s7(){
+  const toks=['The','cat','sat'];
+  const W=[[.72,.18,.10],[.12,.76,.12],[.05,.72,.23]];
+  const bgFor=w=>`rgba(245,166,35,${w*.9})`;
+  const txFor=w=>w>.5?'#000':w>.25?'var(--text)':'var(--muted)';
+  const lvlMsgs=[
+    'Each cell shows how much one word looked at another. Brighter = more attention = more influence on meaning. Notice "sat" row: very bright on "cat" column = sat mostly cares about cat.',
+    'score(i→j) = Q_i · K_j / √d_k. Dividing by √d stops numbers from getting too large before softmax. Softmax turns each row into percentages: 0.72 means 72% of attention budget goes to that token.',
+    'In practice 8–16 heads run in parallel, each with different learned Q, K, V weight matrices. One head might track syntax, another semantics. Results are concatenated and projected. Complexity: O(n²·d) — quadratic in sequence length.'
+  ];
+
+  document.getElementById('viz').innerHTML+=`<div class="center">
+    <div ${fi(.05)}><div class="bdg a">attention matrix</div></div>
+    <div class="ltabs" id="ltabs" ${fi(.1)}>
+      ${['🟢 Beginner','🟡 Intermediate','🔴 Advanced'].map((t,i)=>`<div class="ltab${i===0?' on':''}" onclick="setLvl(${i})">${t}</div>`).join('')}
+    </div>
+    <div class="lvl-bar"><div id="lbar" style="height:100%;border-radius:2px;background:var(--amber);width:0%;transition:width .5s ease"></div></div>
+    <div id="lvlmsg" style="text-align:center;font-size:13px;color:var(--muted);max-width:480px;margin-bottom:10px;min-height:52px;line-height:1.6;transition:opacity .3s">${lvlMsgs[0]}</div>
+    <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;justify-content:center">
+      <div>
+        <div style="display:flex;gap:3px;margin-bottom:3px;padding-left:56px">
+          ${toks.map(t=>`<div style="width:56px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--teal)">${t}</div>`).join('')}
+        </div>
+        ${W.map((row,i)=>`
+        <div style="display:flex;gap:3px;align-items:center;margin-bottom:3px">
+          <div style="width:52px;font-family:var(--mono);font-size:11px;color:var(--amber);text-align:right;padding-right:6px">${toks[i]}</div>
+          ${row.map((w,j)=>`<div style="width:56px;height:56px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;font-weight:600;background:${bgFor(w)};color:${txFor(w)};opacity:0;animation:sclIn .4s ease ${.2+(i*3+j)*.07}s forwards">${w.toFixed(2)}</div>`).join('')}
+        </div>`).join('')}
+        <div style="font-size:11px;color:var(--muted);text-align:center;margin-top:5px">← row is querying, column is being queried →</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;padding-top:28px;opacity:0;animation:up .4s ease .75s forwards">
+        ${[['var(--amber)','.70–.85','Strong attention'],['rgba(245,166,35,.4)','.20–.50','Moderate'],['var(--bg4)','.05–.15','Low / ignored']].map(([bg,v,l])=>`
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:36px;height:22px;border-radius:4px;background:${bg};border:1px solid var(--border)"></div>
+          <div><div style="font-family:var(--mono);font-size:11px;color:var(--text)">${v}</div><div style="font-size:11px;color:var(--muted)">${l}</div></div>
+        </div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+
+  window.setLvl=function(i){
+    document.querySelectorAll('.ltab').forEach((t,j)=>t.classList.toggle('on',j===i));
+    document.getElementById('lbar').style.width=`${i*50}%`;
+    const m=document.getElementById('lvlmsg');
+    m.style.opacity='0';
+    setTimeout(()=>{m.textContent=lvlMsgs[i];m.style.opacity='1'},200);
+  };
+}
+
+function s8(){
+  document.getElementById('viz').innerHTML+=`<div class="center">
+    <div ${fi(.05)}><div class="bdg b">KV cache</div></div>
+    <div ${fi(.1)} style="font-size:13px;color:var(--muted);text-align:center">Generating one token at a time — watch the cache fill up</div>
+    <div style="width:100%;max-width:580px;margin-top:6px">
+      ${[
+        {prev:['The'],gen:'cat',cached:0,step:'Turn 1',note:'Compute K,V for "The". No cache yet.'},
+        {prev:['The','cat'],gen:'sat',cached:1,step:'Turn 2',note:'K,V for "The" cached — reuse it!'},
+        {prev:['The','cat','sat'],gen:'on',cached:2,step:'Turn 3',note:'K,V for "The","cat" cached — only new Q needed.'},
+      ].map(({prev,gen,cached,step,note},i)=>`
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px" ${fi(.15+i*.2)}>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--muted);width:46px;flex-shrink:0">${step}</div>
+        <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
+          ${prev.map((t,j)=>`
+          <div style="position:relative;margin-top:${j<cached?'16px':'0'}">
+            ${j<cached?`<div style="position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:9px;font-family:var(--mono);color:var(--blue);white-space:nowrap">K,V ✓</div>`:''}
+            <div class="tok" style="font-size:12px;padding:6px 10px;${j<cached?'border-color:var(--blue);color:var(--blue);background:var(--blue-dim)':''}">${t}</div>
+          </div>`).join('')}
+          <div style="color:var(--muted);font-size:11px">→</div>
+          <div class="tok ht" style="font-size:12px;padding:6px 10px;animation:gteal 2s infinite">${gen}</div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-left:4px">${note}</div>
+      </div>`).join('')}
+    </div>
+    <div class="row" style="gap:12px;margin-top:4px" ${fi(.85)}>
+      <div style="border:1px solid var(--red);border-radius:10px;padding:10px 14px;background:var(--red-dim);max-width:190px">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--red);margin-bottom:6px">❌ No cache</div>
+        <div style="font-size:12px;color:var(--muted)">Re-compute K,V for all previous tokens each step. <strong style="color:var(--red)">O(n²)</strong> ops.</div>
+      </div>
+      <div style="border:1px solid var(--teal);border-radius:10px;padding:10px 14px;background:var(--teal-dim);max-width:190px">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--teal);margin-bottom:6px">✓ KV Cache</div>
+        <div style="font-size:12px;color:var(--muted)">Compute once, cache forever. Only Q is new. <strong style="color:var(--teal)">O(n)</strong> per step.</div>
+      </div>
+    </div>
+    <div class="eq" ${fi(1.05)}>cache size ∝ layers × heads × seq_len × d_head × 2 (K+V)</div>
+  </div>`;
+}
+
+function s9(){
+  const inN=4,hidN=7,outN=4;
+  const nds=(n,c)=>Array.from({length:n},(_,i)=>`<div style="width:24px;height:24px;border-radius:50%;border:1.5px solid ${c};background:${c}22;opacity:0;animation:up .3s ease ${.15+i*.07}s forwards"></div>`).join('');
+  document.getElementById('viz').innerHTML+=`<div class="center">
+    <div ${fi(.05)}><div class="bdg p">feed-forward network</div></div>
+    <div style="display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:8px">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+        ${nds(inN,'var(--purple)')}
+        <div style="font-family:var(--mono);font-size:10px;color:var(--muted);text-align:center;margin-top:4px">Input<br>d=512</div>
+      </div>
+      <div style="font-size:20px;color:var(--muted)" ${fi(.3)}>→</div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+        ${nds(hidN,'var(--pink)')}
+        <div style="font-family:var(--mono);font-size:10px;color:var(--muted);text-align:center;margin-top:4px">Hidden<br>d=2048<br><span style="color:var(--pink)">ReLU</span></div>
+      </div>
+      <div style="font-size:20px;color:var(--muted)" ${fi(.35)}>→</div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+        ${nds(outN,'var(--teal)')}
+        <div style="font-family:var(--mono);font-size:10px;color:var(--muted);text-align:center;margin-top:4px">Output<br>d=512</div>
+      </div>
+    </div>
+    <div class="eq" ${fi(.65)}>FFN(x) = ReLU(xW₁ + b₁)W₂ + b₂</div>
+    <div ${fi(.78)} style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center">
+      ${[['Attention','cross-word reasoning'],['FFN','per-token memory'],['Together','language + knowledge']].map(([k,v])=>`
+      <div style="text-align:center">
+        <div style="font-family:var(--mono);font-size:12px;color:var(--purple);font-weight:600">${k}</div>
+        <div style="font-size:12px;color:var(--muted)">${v}</div>
+      </div>`).join('<div style="color:var(--muted);font-size:14px;align-self:center">+</div>')}
+    </div>
+  </div>`;
+}
+
+function s10(){
+  const preds=[{w:'"on"',p:42,c:'var(--teal)'},{w:'"down"',p:24,c:'var(--blue)'},{w:'"up"',p:15,c:'var(--amber)'},{w:'"here"',p:11,c:'var(--purple)'},{w:'"still"',p:5,c:'var(--muted)'},{w:'"…"',p:3,c:'var(--muted)'}];
+  document.getElementById('viz').innerHTML+=`<div class="center">
+    <div ${fi(.05)}><div class="bdg t">next token prediction</div></div>
+    <div class="row" ${fi(.1)}>
+      ${['The','cat','sat'].map(t=>`<div class="tok" style="border-color:var(--teal);color:var(--teal);opacity:.5;font-size:13px;padding:7px 12px">${t}</div>`).join('')}
+      <div style="color:var(--muted);font-size:16px">→</div>
+      <div class="tok ht" style="font-size:13px;padding:7px 12px;animation:gteal 1.5s infinite">?</div>
+    </div>
+    <div style="width:100%;max-width:420px;margin-top:8px">
+      ${preds.map((p,i)=>`
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px" ${fi(.2+i*.08)}>
+        <div style="font-family:var(--mono);font-size:13px;width:72px;text-align:right;color:var(--text)">${p.w}</div>
+        <div style="flex:1;background:var(--bg3);border-radius:4px;height:22px;overflow:hidden">
+          <div id="pb${i}" style="height:100%;border-radius:4px;background:${p.c};width:0;display:flex;align-items:center;padding-left:8px;font-family:var(--mono);font-size:11px;font-weight:700;color:#000;transition:width .8s cubic-bezier(.34,1.2,.64,1)"></div>
+        </div>
+      </div>`).join('')}
+    </div>
+    <div ${fi(.95)} style="font-family:var(--mono);font-size:13px;color:var(--teal);border:1px solid var(--teal);border-radius:8px;padding:8px 20px;background:var(--teal-dim)">
+      Model picks "on" → append → loop repeats until [END]
+    </div>
+  </div>`;
+  const targets=[42,24,15,11,5,3];
+  setTimeout(()=>preds.forEach((_,i)=>{const b=document.getElementById('pb'+i);if(b){b.style.width=targets[i]+'%';b.textContent=targets[i]+'%'}}),500);
+}
+
+render();
+</script>
+</body>
+</html>
