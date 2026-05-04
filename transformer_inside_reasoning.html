@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inside Reasoning Models</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Sora:wght@300;400;500;600;700&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#080f1c;--bg2:#0c1627;--bg3:#101e30;--bg4:#172440;
+  --teal:#00d4a8;--teal-dim:rgba(0,212,168,.08);
+  --amber:#f5a623;--amber-dim:rgba(245,166,35,.08);
+  --blue:#4da6ff;--blue-dim:rgba(77,166,255,.08);
+  --purple:#b09eff;--purple-dim:rgba(176,158,255,.08);
+  --pink:#ff7eb3;--pink-dim:rgba(255,126,179,.08);
+  --red:#ff6b6b;--red-dim:rgba(255,107,107,.08);
+  --green:#4ade80;--green-dim:rgba(74,222,128,.08);
+  --orange:#fb923c;--orange-dim:rgba(251,146,60,.08);
+  --text:#dde3f0;--muted:#637080;--border:rgba(255,255,255,0.06);
+  --mono:'IBM Plex Mono',monospace;--sans:'Sora',sans-serif;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;display:flex;flex-direction:column;align-items:center;overflow-x:hidden}
+
+/* Header */
+.hdr{width:100%;padding:13px 24px;border-bottom:1px solid var(--border);background:var(--bg2);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:99;gap:12px}
+.hdr-brand{flex-shrink:0}
+.hdr-title{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--orange)}
+.hdr-sub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:1px}
+.hdr-links{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.hlink{font-family:var(--mono);font-size:10px;padding:4px 11px;border-radius:5px;border:1px solid var(--border);color:var(--muted);text-decoration:none;transition:all .2s;white-space:nowrap}
+.hlink:hover{border-color:var(--orange);color:var(--orange)}
+
+/* Chapter pills */
+.chapters{width:100%;max-width:900px;display:flex;gap:6px;padding:14px 22px 0;flex-wrap:wrap}
+.ch{font-family:var(--mono);font-size:10px;letter-spacing:.07em;padding:5px 14px;border-radius:20px;border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:all .25s;background:transparent;white-space:nowrap}
+.ch.on{color:var(--orange);border-color:var(--orange);background:var(--orange-dim)}
+
+/* Main */
+.main{width:100%;max-width:900px;padding:24px 22px 0}
+.s-tag{font-family:var(--mono);font-size:10px;color:var(--orange);letter-spacing:.14em;text-transform:uppercase;margin-bottom:5px;opacity:0;animation:up .4s .05s forwards}
+.s-title{font-size:24px;font-weight:700;line-height:1.25;margin-bottom:7px;opacity:0;animation:up .4s .1s forwards}
+.s-sub{font-size:13.5px;color:var(--muted);line-height:1.65;max-width:660px;margin-bottom:22px;opacity:0;animation:up .4s .15s forwards}
+
+/* Viz */
+.viz{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:28px 24px;margin-bottom:16px;min-height:220px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.viz::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--orange) 40%,transparent);opacity:.28}
+
+/* Cards */
+.cards{display:grid;gap:9px;margin-bottom:20px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:11px;padding:14px 18px}
+.card.tl{border-left:2px solid var(--teal)}.card.al{border-left:2px solid var(--amber)}.card.bl{border-left:2px solid var(--blue)}.card.pl{border-left:2px solid var(--purple)}.card.gl{border-left:2px solid var(--green)}.card.rl{border-left:2px solid var(--red)}.card.ol{border-left:2px solid var(--orange)}
+.card-hd{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:7px;display:flex;align-items:center;gap:7px}
+.card p{font-size:13px;color:var(--muted);line-height:1.72}
+.card p strong{color:var(--text);font-weight:600}.card p em{color:var(--teal);font-style:normal;font-weight:500}.card p code{font-family:var(--mono);font-size:11px;color:var(--amber);background:var(--bg3);padding:1px 6px;border-radius:4px}
+
+/* Nav */
+.nav{display:flex;justify-content:space-between;align-items:center;padding:0 0 32px;opacity:0;animation:up .4s .3s forwards}
+.nbtn{font-family:var(--sans);font-size:13px;font-weight:500;padding:9px 20px;border-radius:8px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);transition:all .2s}
+.nbtn:hover:not(:disabled){border-color:var(--orange);color:var(--orange)}
+.nbtn:disabled{opacity:.3;cursor:not-allowed}
+.nbtn-nx{background:var(--orange);color:#000;border-color:var(--orange);font-weight:700;padding:10px 28px}
+.nbtn-nx:hover:not(:disabled){box-shadow:0 0 22px rgba(251,146,60,.4);background:#fd9f4e}
+.nbtn-nx:disabled{background:var(--bg3);color:var(--muted);border-color:var(--border);box-shadow:none}
+.nct{font-family:var(--mono);font-size:11px;color:var(--muted)}
+
+/* Stage dots */
+.sdots{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
+.sdot{width:7px;height:7px;border-radius:50%;border:1px solid var(--border);background:var(--bg3);cursor:pointer;transition:all .3s}
+.sdot.done{background:rgba(251,146,60,.35);border-color:var(--orange)}
+.sdot.active{background:var(--orange);box-shadow:0 0 8px var(--orange);transform:scale(1.4)}
+
+/* Animations */
+@keyframes up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes drawL{from{stroke-dashoffset:800}to{stroke-dashoffset:0}}
+@keyframes popIn{from{transform:scale(.2);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes slideR{from{transform:translateX(-14px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes slideU{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes gorange{0%,100%{box-shadow:0 0 5px rgba(251,146,60,.5)}50%{box-shadow:0 0 16px rgba(251,146,60,.9)}}
+@keyframes gpurple{0%,100%{box-shadow:0 0 5px rgba(176,158,255,.5)}50%{box-shadow:0 0 16px rgba(176,158,255,.9)}}
+@keyframes gteal{0%,100%{box-shadow:0 0 5px rgba(0,212,168,.5)}50%{box-shadow:0 0 16px rgba(0,212,168,.9)}}
+@keyframes gred{0%,100%{box-shadow:0 0 5px rgba(255,107,107,.5)}50%{box-shadow:0 0 16px rgba(255,107,107,.9)}}
+@keyframes ggreen{0%,100%{box-shadow:0 0 5px rgba(74,222,128,.5)}50%{box-shadow:0 0 16px rgba(74,222,128,.9)}}
+@keyframes grow{from{width:0}to{}}
+@keyframes loop-arrow{0%{opacity:0;transform:translateX(0) scaleX(1)}40%{opacity:1}80%{opacity:1;transform:translateX(8px) scaleX(1)}100%{opacity:0;transform:translateX(8px) scaleX(1)}}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+@keyframes typeIn{from{max-width:0;opacity:0}to{max-width:500px;opacity:1}}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-4px)}40%{transform:translateX(4px)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}
+@keyframes strike{from{width:0}to{width:100%}}
+
+/* Shared components */
+.center{display:flex;flex-direction:column;align-items:center;gap:12px;width:100%}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center}
+.bdg{display:inline-flex;align-items:center;font-family:var(--mono);font-size:10px;letter-spacing:.1em;padding:3px 12px;border-radius:20px;border:1px solid;text-transform:uppercase}
+.bdg.o{border-color:var(--orange);color:var(--orange);background:var(--orange-dim)}
+.bdg.p{border-color:var(--purple);color:var(--purple);background:var(--purple-dim)}
+.bdg.t{border-color:var(--teal);color:var(--teal);background:var(--teal-dim)}
+.bdg.g{border-color:var(--green);color:var(--green);background:var(--green-dim)}
+.bdg.r{border-color:var(--red);color:var(--red);background:var(--red-dim)}
+.eq{font-family:var(--mono);font-size:12px;color:var(--teal);background:var(--bg3);padding:6px 16px;border-radius:6px;border:1px solid rgba(0,212,168,.15);display:inline-block}
+
+/* Token chips */
+.chip{font-family:var(--mono);font-size:11px;font-weight:600;padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:var(--bg3);color:var(--text);display:inline-flex;align-items:center;gap:4px;white-space:nowrap;flex-shrink:0}
+.chip.th{border-color:var(--purple);color:var(--purple);background:var(--purple-dim)}
+.chip.out{border-color:var(--teal);color:var(--teal);background:var(--teal-dim)}
+.chip.in{border-color:var(--amber);color:var(--amber);background:var(--amber-dim)}
+.chip.sp{border-color:var(--orange);color:var(--orange);background:var(--orange-dim);animation:gorange 2s infinite}
+.chip.bt{border-color:var(--red);color:var(--red);background:var(--red-dim)}
+.chip.vr{border-color:var(--green);color:var(--green);background:var(--green-dim)}
+.chip.wr{border-color:var(--red);color:var(--red);background:var(--red-dim);text-decoration:line-through;opacity:.65}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-brand">
+    <div class="hdr-title">Inside Reasoning Models</div>
+    <div class="hdr-sub">Boundary tokens · Thinking loops · RL vs CoT · Hallucination</div>
+  </div>
+  <div class="hdr-links">
+    <a href="transformer_explainer.html" class="hlink">← Main Guide</a>
+    <a href="transformer_deepdive.html" class="hlink">Deep Dive</a>
+    <a href="transformer_reasoning.html" class="hlink">Reasoning Viz</a>
+  </div>
+</div>
+
+<div class="chapters" id="chapters"></div>
+<div class="main" id="main"></div>
+
+<script>
+/* ══════════════════════════════════════════════════
+   CHAPTERS & STAGES
+══════════════════════════════════════════════════ */
+const CHAPTERS = [
+  { name:"1 — Boundary Tokens", col:"var(--orange)" },
+  { name:"2 — Thinking Token Loop", col:"var(--purple)" },
+  { name:"3 — CoT vs RL Reasoning", col:"var(--blue)" },
+  { name:"4 — Multi-Path Exploration", col:"var(--green)" },
+  { name:"5 — Hallucination in Reasoning", col:"var(--red)" },
+];
+
+const STAGES = [
+
+/* ══ CHAPTER 1: BOUNDARY TOKENS ══════════════════ */
+{ch:0, tag:"Chapter 1 — Boundary Tokens",
+ title:"How does the model know what it's generating?",
+ sub:"Special tokens — literally <think> and </think> — act as mode switches. The model was trained to behave completely differently inside vs outside these tags.",
+ render: s1a,
+ cards:[
+   {c:"ol",hd:"orange",head:"They're real vocabulary tokens",body:"<code>&lt;think&gt;</code> and <code>&lt;/think&gt;</code> are entries in the token vocabulary, just like 'cat' or 'Paris'. During RL training, the model learned: <strong>generate exploration content between these tags, generate final answer after the closing tag</strong>. The tags are the signal."},
+   {c:"pl",hd:"purple",head:"The model reads its own output",body:"Remember: every new token is generated from the full context including all previously generated tokens. When the model generates <code>&lt;/think&gt;</code>, <strong>it literally sees that token in its next forward pass</strong> and knows: scratchpad phase is over, now produce the answer."},
+   {c:"al",hd:"amber",head:"The base model doesn't know this",body:"A vanilla pretrained model has no concept of thinking vs output. This behavior is <strong>trained in during fine-tuning and RL</strong>. The base model and the reasoning model have the same architecture but different weights — the boundary token meaning is baked into those weight differences."}
+ ]
+},
+{ch:0, tag:"Chapter 1 — Boundary Tokens",
+ title:"What the actual token stream looks like",
+ sub:"Let's see the literal sequence of tokens the model generates — showing exactly where thinking ends and output begins.",
+ render: s1b,
+ cards:[
+   {c:"ol",hd:"orange",head:"Two zones, one stream",body:"The model generates one continuous token stream. The <code>&lt;think&gt;</code> tag opens the scratchpad zone. <code>&lt;/think&gt;</code> closes it. After that, everything is output. The serving infrastructure reads these tags to decide <strong>what to show the user and what to hide</strong>."},
+   {c:"tl",hd:"teal",head:"Anthropic calls it 'extended thinking', OpenAI calls it 'reasoning'",body:"Different names, same mechanism. Claude's thinking tokens and o1's reasoning tokens are both <strong>token sequences in the context window</strong> gated by special boundary markers. The model was trained to treat them as a private scratchpad."},
+   {c:"pl",hd:"purple",head:"Temperature may differ between zones",body:"Some implementations use <strong>lower temperature for the output zone</strong> (more deterministic answers) and higher temperature for the thinking zone (more exploratory). The boundary token is the trigger that lets the decoding system switch parameters mid-generation."}
+ ]
+},
+
+/* ══ CHAPTER 2: THINKING TOKEN LOOP ══════════════ */
+{ch:1, tag:"Chapter 2 — The Thinking Token Loop",
+ title:"Thinking tokens ARE fed back to the model",
+ sub:"Every thinking token becomes part of the context window. The model reads its own previous thoughts on every single forward pass.",
+ render: s2a,
+ cards:[
+   {c:"pl",hd:"purple",head:"The loop is just the normal generation loop",body:"There is no special 'reasoning loop' separate from normal generation. It's the same token-by-token loop — just that the tokens being generated happen to be inside <code>&lt;think&gt;</code> tags. <strong>The model reads every previous thinking token when generating the next one.</strong>"},
+   {c:"al",hd:"amber",head:"Yes, they consume KV cache memory",body:"Thinking tokens are real tokens in the context window. They generate real K and V vectors that get cached. A model that uses 2,000 thinking tokens for a problem uses <strong>2,000 slots of KV cache</strong> before even starting the answer. This is why thinking budgets exist — memory and compute cost money."},
+   {c:"tl",hd:"teal",head:"Earlier thinking tokens influence later ones",body:"Because all thinking tokens are in the context, the model's 'insight' at step 30 of its reasoning depends on what it generated at steps 1–29. This is how multi-step reasoning chains build on themselves — each step is <strong>conditioned on all previous thinking</strong>."}
+ ]
+},
+{ch:1, tag:"Chapter 2 — The Thinking Token Loop",
+ title:"Thinking tokens as re-injection of relevant context",
+ sub:"Your intuition about CoT reasoning tokens being 'extraction' is right — and it goes deeper. Let's see what's actually happening.",
+ render: s2b,
+ cards:[
+   {c:"tl",hd:"teal",head:"Your intuition: reasoning tokens extract relevant data",body:"Correct — and this is powerful. When the model writes <em>'Speed = 60 mph, Time = 2.5 hours'</em>, it's pulling the relevant facts from the prompt into the immediate recent context. The attention mechanism can now focus on these nearby tokens instead of searching the whole prompt."},
+   {c:"pl",hd:"purple",head:"But it's also computation in token space",body:"When the model writes <em>'Distance = speed × time = 60 × 2.5 = 150'</em>, it's not just retrieving — it's <strong>executing arithmetic by generating tokens</strong>. Each step of the working-out is a real computation, expressed as tokens, that feeds the next step. The token sequence IS the calculation."},
+   {c:"ol",hd:"orange",head:"Thinking tokens do three things at once",body:"<strong>1) Extraction</strong> — pull relevant facts to recent context. <strong>2) Computation</strong> — execute reasoning steps as token sequences. <strong>3) Working memory</strong> — earlier steps stay in context so later steps can reference them without attention having to reach all the way back to the original prompt."}
+ ]
+},
+
+/* ══ CHAPTER 3: COT vs RL ═════════════════════════ */
+{ch:2, tag:"Chapter 3 — CoT vs RL Reasoning",
+ title:"How are CoT and RL reasoning actually different?",
+ sub:"Both produce thinking tokens. But where those thinking patterns came from — and what they can do — is fundamentally different.",
+ render: s3a,
+ cards:[
+   {c:"al",hd:"amber",head:"CoT: learned by imitation",body:"CoT reasoning quality comes from training on <strong>human-written text that contains reasoning</strong>. Math textbooks, solutions, proofs, Stack Overflow answers. The model learned that step-by-step text tends to precede correct answers. It's imitating the <em>form</em> of human reasoning."},
+   {c:"pl",hd:"purple",head:"RL reasoning: learned by outcome",body:"RL-trained reasoning models were given problems with verifiable answers and let to generate any token sequence inside <code>&lt;think&gt;</code>. <strong>The only training signal was: did the final answer match the correct answer?</strong> The model discovered reasoning strategies by trial and error across millions of attempts."},
+   {c:"tl",hd:"teal",head:"The critical difference",body:"CoT can only reason the way humans reason in text. RL reasoning can discover strategies humans have never written down. When o1 solves a novel math problem, its thinking tokens might not look like any textbook — <strong>they're strategies that emerged from the reward signal alone</strong>."}
+ ]
+},
+{ch:2, tag:"Chapter 3 — CoT vs RL Reasoning",
+ title:"The training process that creates reasoning models",
+ sub:"Let's trace exactly how RL training shapes a model to produce useful thinking tokens.",
+ render: s3b,
+ cards:[
+   {c:"ol",hd:"orange",head:"Step 1: Start with a strong base model",body:"RL reasoning training starts from a pretrained (and usually instruction-fine-tuned) model. It already knows language, facts, basic reasoning. RL refines <strong>how it explores and verifies</strong>, not what it knows."},
+   {c:"pl",hd:"purple",head:"Step 2: Generate many thinking paths",body:"The model generates multiple different thinking-token sequences for the same problem — different approaches, different orderings, different amounts of verification. This is called <strong>sampling</strong> — intentionally running the model many times with higher temperature to get diverse outputs."},
+   {c:"tl",hd:"teal",head:"Step 3: Score by answer correctness, update weights",body:"Paths that led to correct answers are reinforced. Paths that led to wrong answers are penalized. Over millions of problems, the model's weights shift to make <strong>useful reasoning patterns more probable and dead-end patterns less probable</strong>. The thinking style is shaped by what works."},
+   {c:"gl",hd:"green",head:"What the model never does",body:"There's no human labeling which thinking tokens are 'good' or 'bad'. No one writes correct thinking traces for the model to imitate. The reasoning style is <strong>entirely self-discovered</strong> — the only feedback is whether the final number or answer was correct."}
+ ]
+},
+
+/* ══ CHAPTER 4: MULTI-PATH EXPLORATION ═══════════ */
+{ch:3, tag:"Chapter 4 — Multi-Path Exploration",
+ title:"Reasoning is like trying different paths through a maze",
+ sub:"Your intuition is right: reasoning models effectively explore multiple solution strategies within one generation.",
+ render: s4a,
+ cards:[
+   {c:"gl",hd:"green",head:"Within one generation, multiple approaches",body:"A reasoning model on a hard problem might generate: approach A (fails), backtrack, approach B (partial progress), verify, approach C (succeeds). All inside one <code>&lt;think&gt;</code> block, all in one forward-pass loop. <strong>It's one model effectively doing trial and error in its own scratchpad.</strong>"},
+   {c:"pl",hd:"purple",head:"This emerged from RL — nobody designed it",body:"Nobody coded 'try approach A, then backtrack, then try B'. During RL training, sequences that included backtracking and retry happened to lead to correct answers more often. <strong>The model learned that this pattern works and made it more probable.</strong> It's a strategy the model discovered."},
+   {c:"al",hd:"amber",head:"Unseen problems — can the model still reason?",body:"Partially. The model can apply reasoning strategies to novel combinations of known concepts. But if a problem requires knowledge genuinely absent from training, <strong>the reasoning loop will still try — and may hallucinate confidently</strong>. Reasoning improves reliability, it doesn't guarantee correctness."}
+ ]
+},
+{ch:3, tag:"Chapter 4 — Multi-Path Exploration",
+ title:"Interactive: watching a model explore multiple paths",
+ sub:"See how a reasoning model might tackle a problem it's unsure about — branching, abandoning, retrying.",
+ render: s4b,
+ cards:[
+   {c:"ol",hd:"orange",head:"The scratchpad is non-linear",body:"Unlike CoT which is always forward-only, RL-trained reasoning can be non-linear: pursue a path, realize it's wrong, explicitly abandon it, start fresh. The <strong>context window holds all abandoned paths too</strong> — they provide negative examples the model attends to when trying the next approach."},
+   {c:"tl",hd:"teal",head:"Abandoned paths are useful context",body:"When the model sees in its context 'I tried X and got contradiction Y', the next approach is conditioned on that failure. This is exactly like a human who remembers what they already tried. <strong>Failed attempts in the scratchpad help the model avoid repeating them.</strong>"},
+   {c:"gl",hd:"green",head:"Thinking budget matters here",body:"A larger thinking budget lets the model attempt more paths. With a tiny budget (200 tokens), it might commit to the first approach. With a large budget (10,000 tokens), it can thoroughly explore 3-4 approaches and pick the most self-consistent one. <strong>Budget = exploration space.</strong>"}
+ ]
+},
+
+/* ══ CHAPTER 5: HALLUCINATION IN REASONING ═══════ */
+{ch:4, tag:"Chapter 5 — Hallucination in Reasoning",
+ title:"Yes, models hallucinate inside their reasoning chains",
+ sub:"Reasoning tokens are still next-token predictions. The model can generate plausible-looking but wrong reasoning — and then confidently build on it.",
+ render: s5a,
+ cards:[
+   {c:"rl",hd:"red",head:"Unfaithful reasoning",body:"A reasoning chain can look logically valid on the surface but contain a wrong premise, a wrong fact, or a wrong arithmetic step. Because every subsequent token is conditioned on the wrong step, <strong>the error propagates and compounds</strong>. The model can reason itself into a confident wrong answer."},
+   {c:"al",hd:"amber",head:"The model doesn't 'know' it's wrong",body:"There's no internal flag that says 'this reasoning step is hallucinated'. The model generates the next most probable token given context. If the wrong step looks statistically consistent with what comes next, <strong>the generation continues as if the error didn't happen</strong>."},
+   {c:"gl",hd:"green",head:"Why reasoning still helps",body:"Even with hallucination risk, reasoning reduces error rates because: <strong>1)</strong> more surface area for self-correction. <strong>2)</strong> Verification steps can catch errors. <strong>3)</strong> The final answer is more constrained by the preceding reasoning chain, reducing wild guesses. But it's not a cure."}
+ ]
+},
+{ch:4, tag:"Chapter 5 — Hallucination in Reasoning",
+ title:"Can the model reason about things it's never seen?",
+ sub:"The limits of reasoning when the underlying knowledge is absent or uncertain.",
+ render: s5b,
+ cards:[
+   {c:"rl",hd:"red",head:"Reasoning can't create knowledge that isn't there",body:"If a problem requires a fact the model never learned (a recent event, a private document, a niche formula), the reasoning process will still run — but it will fill in the gaps with plausible-sounding guesses. <strong>Reasoning on top of wrong premises produces wrong answers with confident reasoning.</strong>"},
+   {c:"al",hd:"amber",head:"Pattern recombination vs true novelty",body:"The model can reason about problems it hasn't seen if they're <strong>novel combinations of familiar patterns</strong>. A new math problem using known techniques: solvable. A problem requiring a technique that didn't exist in training data: the model will try to approximate it with something it does know — and may hallucinate the bridge."},
+   {c:"ol",hd:"orange",head:"Will it skip reasoning?",body:"It can. Under time/budget pressure (short thinking budget) or when a problem 'pattern-matches' strongly to a memorized answer, the model may emit the answer quickly with minimal reasoning. Sometimes this is right (simple problems). Sometimes it confidently skips to a wrong memorized answer. <strong>This is why forcing a thinking budget helps on hard problems.</strong>"},
+   {c:"gl",hd:"green",head:"The partial solution",body:"Retrieval-Augmented Generation (RAG) + reasoning: ground the model in verified external facts first, then let it reason over them. This addresses the knowledge-gap problem. The reasoning model handles <em>how to think</em>; the retrieval system handles <em>what facts to think with</em>."}
+ ]
+}
+
+]; // end STAGES
+
+let cur = 0;
+
+/* ── helpers ── */
+const fi = d => `style="opacity:0;animation:up .4s ease ${d}s forwards"`;
+const cmap = {teal:'var(--teal)',amber:'var(--amber)',blue:'var(--blue)',purple:'var(--purple)',green:'var(--green)',red:'var(--red)',orange:'var(--orange)'};
+
+function buildChapters(){
+  const c = document.getElementById('chapters'); c.innerHTML='';
+  const activeCh = STAGES[cur].ch;
+  CHAPTERS.forEach((ch,i)=>{
+    const el=document.createElement('div');
+    el.className='ch'+(i===activeCh?' on':'');
+    el.textContent=ch.name;
+    el.onclick=()=>{ cur=STAGES.findIndex(s=>s.ch===i); render(); };
+    c.appendChild(el);
+  });
+}
+
+function render(){
+  const s = STAGES[cur];
+  const total = STAGES.length;
+  const m = document.getElementById('main');
+  m.innerHTML=`
+    <div class="sdots" id="sdots"></div>
+    <div class="s-tag">${s.tag}</div>
+    <div class="s-title">${s.title}</div>
+    <div class="s-sub">${s.sub}</div>
+    <div class="viz" id="viz"></div>
+    <div class="cards" id="cards"></div>
+    <div class="nav">
+      <button class="nbtn" onclick="go(-1)" ${cur===0?'disabled':''}>← Back</button>
+      <span class="nct">${cur+1} / ${total}</span>
+      <button class="nbtn nbtn-nx" onclick="go(1)" ${cur===total-1?'disabled':''}>Next →</button>
+    </div>`;
+
+  // dots
+  const sdots=document.getElementById('sdots');
+  for(let i=0;i<total;i++){
+    const d=document.createElement('div');
+    d.className='sdot'+(i<cur?' done':'')+(i===cur?' active':'');
+    d.onclick=()=>{cur=i;render()};
+    sdots.appendChild(d);
+  }
+
+  buildChapters();
+  s.render();
+
+  const cc=document.getElementById('cards');
+  s.cards.forEach((card,i)=>{
+    const div=document.createElement('div');
+    div.className=`card ${card.c}`;
+    div.style=`opacity:0;animation:up .4s ease ${.28+i*.1}s forwards`;
+    div.innerHTML=`<div class="card-hd" style="color:${cmap[card.hd]}"><div style="width:7px;height:7px;border-radius:50%;background:${cmap[card.hd]};flex-shrink:0"></div>${card.head}</div><p>${card.body}</p>`;
+    cc.appendChild(div);
+  });
+}
+
+function go(d){ cur=Math.max(0,Math.min(STAGES.length-1,cur+d)); render(); }
+
+/* ══════════════════════════════════════════════════
+   VIZ RENDER FUNCTIONS
+══════════════════════════════════════════════════ */
+
+function s1a(){
+  // Show: <think> token as mode switch
+  document.getElementById('viz').innerHTML=`<div class="center">
+    <div ${fi(.05)}><div class="bdg o">special boundary tokens — mode switches</div></div>
+    <div style="width:100%;max-width:640px;margin-top:6px">
+      <!-- Vocab entry -->
+      <div style="border:1px solid var(--border);border-radius:10px;background:var(--bg3);padding:14px 18px;margin-bottom:14px" ${fi(.12)}>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:8px">VOCABULARY TABLE (simplified)</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${[['cat','#12312'],['Paris','#29301'],['...','...'],['&lt;think&gt;','#99,991'],['&lt;/think&gt;','#99,992'],['...','...']].map(([tok,id],i)=>`
+          <div style="border:1px solid ${tok.includes('think')?'var(--orange)':'var(--border)'};border-radius:6px;padding:6px 10px;background:${tok.includes('think')?'var(--orange-dim)':'var(--bg4)'};opacity:0;animation:popIn .3s ease ${.15+i*.08}s forwards">
+            <div style="font-family:var(--mono);font-size:12px;color:${tok.includes('think')?'var(--orange)':'var(--text)'};font-weight:600">${tok}</div>
+            <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">${id}</div>
+          </div>`).join('')}
+        </div>
+      </div>
+      <!-- Token stream with zones -->
+      <div ${fi(.6)}>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:8px">GENERATED TOKEN STREAM</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+          <div class="chip in" ${fi(.65)}>Question?</div>
+          <div style="font-size:11px;color:var(--muted)" ${fi(.7)}>→</div>
+          <div class="chip sp" ${fi(.72)} style="font-size:11px">&lt;think&gt;</div>
+          <div style="border-top:2px dashed rgba(176,158,255,.4);border-bottom:2px dashed rgba(176,158,255,.4);border-left:1px dashed rgba(176,158,255,.2);border-right:1px dashed rgba(176,158,255,.2);padding:6px 8px;border-radius:4px;display:flex;gap:4px;flex-wrap:wrap;background:rgba(176,158,255,.04)" ${fi(.8)}>
+            <div class="chip th" style="font-size:10px;padding:4px 8px">Let me think...</div>
+            <div class="chip th" style="font-size:10px;padding:4px 8px">First approach...</div>
+            <div class="chip th" style="font-size:10px;padding:4px 8px">Hmm, wait...</div>
+            <div class="chip th" style="font-size:10px;padding:4px 8px">Try again...</div>
+            <div style="font-family:var(--mono);font-size:10px;color:var(--purple);align-self:center">← hidden from user</div>
+          </div>
+          <div class="chip sp" ${fi(1.0)} style="font-size:11px">&lt;/think&gt;</div>
+          <div style="font-size:11px;color:var(--muted)" ${fi(1.05)}>→</div>
+          <div class="chip out" ${fi(1.1)} style="animation:gteal 2s 1.1s infinite">The answer is...</div>
+        </div>
+      </div>
+      <!-- Zone labels -->
+      <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:12px" ${fi(1.2)}>
+        ${[['var(--orange)','&lt;think&gt; / &lt;/think&gt;','Boundary tokens — mode switches'],['var(--purple)','Thinking zone','Scratchpad — model explores freely'],['var(--teal)','Output zone','What you see — after </think>']].map(([c,label,desc])=>`
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:10px;height:10px;border-radius:50%;background:${c};flex-shrink:0"></div>
+          <div><div style="font-family:var(--mono);font-size:11px;color:${c}">${label}</div><div style="font-size:11px;color:var(--muted)">${desc}</div></div>
+        </div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+function s1b(){
+  // Show actual token stream with zone colors
+  const tokens=[
+    {t:'What is 17 × 23?',z:'input',col:'var(--amber)',bg:'var(--amber-dim)'},
+    {t:'<think>',z:'boundary',col:'var(--orange)',bg:'var(--orange-dim)',sp:true},
+    {t:'17 × 23...',z:'thinking',col:'var(--purple)',bg:'var(--purple-dim)'},
+    {t:'= 17 × 20 + 17 × 3',z:'thinking',col:'var(--purple)',bg:'var(--purple-dim)'},
+    {t:'= 340 + 51',z:'thinking',col:'var(--purple)',bg:'var(--purple-dim)'},
+    {t:'= 391',z:'thinking',col:'var(--purple)',bg:'var(--purple-dim)'},
+    {t:'</think>',z:'boundary',col:'var(--orange)',bg:'var(--orange-dim)',sp:true},
+    {t:'17 × 23 = 391',z:'output',col:'var(--teal)',bg:'var(--teal-dim)'},
+  ];
+  document.getElementById('viz').innerHTML=`<div class="center">
+    <div ${fi(.05)}><div class="bdg o">the literal token stream</div></div>
+    <div style="width:100%;max-width:640px;margin-top:8px">
+      <!-- Stream -->
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${tokens.map((tk,i)=>`
+        <div style="display:flex;align-items:center;gap:10px;opacity:0;animation:slideR .35s ease ${.1+i*.12}s forwards">
+          <div style="font-family:var(--mono);font-size:9px;color:var(--muted);width:60px;text-align:right;flex-shrink:0">token ${i+1}</div>
+          <div style="border:1px solid ${tk.col};border-radius:7px;background:${tk.bg};padding:7px 14px;font-family:var(--mono);font-size:12px;font-weight:600;color:${tk.col};${tk.sp?'animation:gorange 2s infinite':''}">${tk.t}</div>
+          <div style="font-size:11px;color:var(--muted);font-style:italic">${tk.z==='input'?'← from user':tk.z==='boundary'?'⚡ MODE SWITCH':tk.z==='thinking'?'hidden scratchpad':'✓ shown to user'}</div>
+        </div>`).join('')}
+      </div>
+      <!-- Serving infra note -->
+      <div ${fi(1.2)} style="margin-top:16px;border:1px solid var(--border);border-radius:9px;padding:12px 16px;background:var(--bg3)">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--orange);margin-bottom:6px">WHAT THE SERVING INFRASTRUCTURE DOES</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.7">
+          Reads the token stream → strips everything between <span style="color:var(--orange)"><code>&lt;think&gt;</code></span> and <span style="color:var(--orange)"><code>&lt;/think&gt;</code></span> → streams only the output zone to you. The thinking tokens consumed <strong style="color:var(--text)">real KV cache memory and real compute time</strong> — they're just not shown.
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function s2a(){
+  // Animated loop showing thinking tokens fed back
+  let step=0;
+  const thinkTokens=['Let me analyze...','First: identify knowns','Speed = 60, Time = 2.5','Formula: dist = s × t','60 × 2.5 = 150','Answer: 150 miles'];
+  function draw(){
+    const ctx=document.getElementById('ctx-tokens');
+    const arrow=document.getElementById('loop-indicator');
+    if(!ctx)return;
+    ctx.innerHTML='';
+    // Input
+    const inp=document.createElement('div');
+    inp.style='display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;padding:8px 12px;border:1px solid rgba(245,166,35,.25);border-radius:7px;background:rgba(245,166,35,.05)';
+    inp.innerHTML='<div style="font-family:var(--mono);font-size:9px;color:var(--amber);width:100%;margin-bottom:4px">PROMPT (fixed)</div>'+
+      ["If","a","train","goes","60mph","for","2.5h",",","how","far","?"].map(t=>`<div style="font-family:var(--mono);font-size:10px;padding:2px 6px;border-radius:3px;background:rgba(245,166,35,.1);color:var(--amber)">${t}</div>`).join('');
+    ctx.appendChild(inp);
+    // Think open
+    const topen=document.createElement('div');
+    topen.innerHTML=`<div class="chip sp" style="font-size:10px;padding:4px 10px;margin-bottom:6px">&lt;think&gt;</div>`;
+    ctx.appendChild(topen);
+    // Generated thinking tokens so far
+    for(let i=0;i<step;i++){
+      const row=document.createElement('div');
+      row.style='display:flex;align-items:center;gap:8px;margin-bottom:4px';
+      row.innerHTML=`
+        <div style="font-family:var(--mono);font-size:9px;color:var(--purple);width:48px;text-align:right">think ${i+1}</div>
+        <div class="chip th" style="font-size:11px;padding:4px 10px;animation:gpurple 3s ${i*.15}s infinite">${thinkTokens[i]}</div>
+        ${i===step-1?'<div style="font-family:var(--mono);font-size:9px;color:var(--orange)">← just generated</div>':'<div style="font-family:var(--mono);font-size:9px;color:var(--muted)">← in context</div>'}`;
+      ctx.appendChild(row);
+    }
+    // Current cursor
+    if(step<thinkTokens.length){
+      const cur=document.createElement('div');
+      cur.style='display:flex;align-items:center;gap:8px;margin-top:4px';
+      cur.innerHTML=`<div style="font-family:var(--mono);font-size:9px;color:var(--muted);width:48px;text-align:right">next</div><div style="font-family:var(--mono);font-size:13px;color:var(--muted);animation:blink 1s infinite">▌</div><div style="font-size:11px;color:var(--muted)">← being generated from all context above</div>`;
+      ctx.appendChild(cur);
+    }
+    document.getElementById('stepbtn').disabled=step>=thinkTokens.length;
+    document.getElementById('stepbtn').setAttribute('onclick',`thinkStep(${step+1})`);
+    document.getElementById('resetbtn').setAttribute('onclick',`thinkStep(0)`);
+  }
+  window.thinkStep=function(i){step=i;draw()};
+
+  document.getElementById('viz').innerHTML=`<div class="center">
+    <div ${fi(.05)}><div class="bdg p">thinking tokens loop back as context</div></div>
+    <div style="font-size:13px;color:var(--muted);text-align:center" ${fi(.1)}>Each new thinking token sees <span style="color:var(--purple);font-weight:600">all previous thinking tokens</span> as input</div>
+    <div id="ctx-tokens" style="width:100%;max-width:600px;min-height:160px" ${fi(.15)}></div>
+    <div style="display:flex;gap:10px" ${fi(.2)}>
+      <button id="resetbtn" onclick="thinkStep(0)" style="font-family:var(--mono);font-size:11px;padding:5px 14px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer">reset</button>
+      <button id="stepbtn" onclick="thinkStep(1)" style="font-family:var(--mono);font-size:11px;padding:5px 18px;border-radius:7px;border:1px solid var(--purple);background:var(--purple-dim);color:var(--purple);cursor:pointer">▶ generate thinking token</button>
+    </div>
+  </div>`;
+  setTimeout(draw,150);
+}
+
+function s2b(){
+  // Three roles of thinking tokens
+  document.getElementById('viz').innerHTML=`<div class="center">
+    <div ${fi(.05)}><div class="bdg o">three things thinking tokens do simultaneously</div></div>
+    <div style="width:100%;max-width:640px;display:flex;flex-direction:column;gap:0;margin-top:10px">
+      <!-- Problem -->
+      <div style="border:1px solid var(--border);border-radius:10px;background:var(--bg3);padding:10px 16px;margin-bottom:16px;font-family:var(--mono);font-size:12px;color:var(--muted)" ${fi(.1)}>
+        Problem: "If speed=60, time=2.5, and distance=speed×time, what is distance?"
+      </div>
+      ${[
+        {role:'1 — Extraction', col:'var(--amber)', desc:'Pull relevant facts to recent context', tokens:['Speed = 60','Time = 2.5'], note:'These tokens copy key values from the (potentially long) prompt into the immediate context. Future attention steps can now focus on these nearby tokens.', delay:.18},
+        {role:'2 — Computation', col:'var(--purple)', desc:'Execute reasoning steps as token sequences', tokens:['dist = speed × time','dist = 60 × 2.5','dist = 150'], note:'The model executes the formula by generating tokens that express each step. This is real computation happening in token space.', delay:.35},
+        {role:'3 — Working Memory', col:'var(--teal)', desc:'Earlier steps stay visible for later steps', tokens:['...all above...','→ used by next token'], note:'All previous thinking tokens sit in context. When generating "dist = 150", the model can attend to "speed = 60" from step 1 without reaching all the way back to the original prompt.', delay:.52},
+      ].map(({role,col,desc,tokens,note,delay})=>`
+      <div style="display:flex;gap:0;align-items:stretch;opacity:0;animation:up .4s ease ${delay}s forwards">
+        <div style="width:28px;flex-shrink:0;display:flex;flex-direction:column;align-items:center">
+          <div style="width:10px;height:10px;border-radius:50%;background:${col};margin-top:12px;flex-shrink:0"></div>
+          <div style="width:1.5px;flex:1;background:${col}25;min-height:8px"></div>
+        </div>
+        <div style="padding:8px 0 16px 14px;flex:1">
+          <div style="font-family:var(--mono);font-size:11px;font-weight:600;color:${col};margin-bottom:3px">${role} — ${desc}</div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:5px">
+            ${tokens.map(t=>`<div class="chip th" style="font-size:10px;padding:3px 8px;border-color:${col};color:${col}">${t}</div>`).join('')}
+          </div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.5">${note}</div>
+        </div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function s3a(){
+  document.getElementById('viz').innerHTML=`<div class="center">
+    <div ${fi(.05)}><div class="bdg o">CoT vs RL — where the reasoning style comes from</div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;width:100%;max-width:640px;margin-top:8px">
+      <!-- CoT -->
+      <div style="border:1px solid var(--blue);border-radius:12px;background:var(--blue-dim);padding:16px" ${fi(.12)}>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--blue);margin-bottom:10px">COT — imitation learning</div>
+        <div style="display:flex;flex-direction:column;gap:0">
+          ${[{step:'Training data',c:'var(--blue)',desc:'Human-written step-by-step reasoning in text'},
+             {step:'Learning signal',c:'var(--blue)',desc:'Imitate this text — predict next token'},
+             {step:'Result',c:'var(--blue)',desc:'Reasons the way humans write reasoning'},
+             {step:'Limit',c:'var(--muted)',desc:'Can\'t discover strategies not in training text'}
+          ].map(({step,c,desc},i)=>`
+          <div style="display:flex;gap:0;align-items:stretch;opacity:0;animation:up .3s ease ${.2+i*.1}s forwards">
+            <div style="width:22px;flex-shrink:0;display:flex;flex-direction:column;align-items:center">
+              <div style="width:8px;height:8px;border-radius:50%;background:${c};margin-top:10px;flex-shrink:0"></div>
+              ${i<3?`<div style="width:1px;flex:1;background:${c}30;min-height:6px"></div>`:''}
+            </div>
+            <div style="padding:6px 0 10px 10px">
+              <div style="font-family:var(--mono);font-size:10px;font-weight:600;color:${c}">${step}</div>
+              <div style="font-size:11px;color:var(--muted)">${desc}</div>
+            </div>
+          </div>`).join('')}
+        </div>
+      </div>
+      <!-- RL -->
+      <div style="border:1px solid var(--orange);border-radius:12px;background:var(--orange-dim);padding:16px" ${fi(.2)}>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--orange);margin-bottom:10px">RL REASONING — outcome learning</div>
+        <div style="display:flex;flex-direction:column;gap:0">
+          ${[{step:'Training signal',c:'var(--orange)',desc:'Was the final answer correct? (only that)'},
+             {step:'Exploration',c:'var(--orange)',desc:'Generate many thinking paths, keep what works'},
+             {step:'Result',c:'var(--orange)',desc:'Discovers reasoning strategies from scratch'},
+             {step:'Power',c:'var(--green)',desc:'Can find strategies humans never wrote down'}
+          ].map(({step,c,desc},i)=>`
+          <div style="display:flex;gap:0;align-items:stretch;opacity:0;animation:up .3s ease ${.28+i*.1}s forwards">
+            <div style="width:22px;flex-shrink:0;display:flex;flex-direction:column;align-items:center">
+              <div style="width:8px;height:8px;border-radius:50%;background:${c};margin-top:10px;flex-shrink:0"></div>
+              ${i<3?`<div style="width:1px;flex:1;background:${c}30;min-height:6px"></div>`:''}
+            </div>
+            <div style="padding:6px 0 10px 10px">
+              <div style="font-family:var(--mono);font-size:10px;font-weight:600;color:${c}">${step}</div>
+              <div style="font-size:11px;color:var(--muted)">${desc}</div>
+            </div>
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="eq" ${fi(.75)}>CoT: mimic reasoning style &nbsp;|&nbsp; RL: discover what actually works</div>
+  </div>`;
+}
+
+function s3b(){
+  document.getElementById('viz').innerHTML=`<div class="center">
+    <div ${fi(.05)}><div class="bdg o">RL training loop for reasoning</div></div>
+    <div style="width:100%;max-width:620px;margin-top:8px">
+      ${[
+        {n:1,label:'Same hard problem given repeatedly',detail:'e.g. AIME 2024 #7 — a problem with a verifiable integer answer',col:'var(--amber)',d:.1},
+        {n:2,label:'Model generates many different thinking paths',detail:'High temperature → diverse scratchpads → path A, path B, path C all tried',col:'var(--purple)',d:.22},
+        {n:3,label:'Only final answer is checked',detail:'"Is the last number correct?" — no human reads the thinking tokens',col:'var(--blue)',d:.34},
+        {n:4,label:'Correct paths get reinforced',detail:'The weights shift to make the token patterns that led to correct answers more probable',col:'var(--green)',d:.46},
+        {n:5,label:'Wrong paths get penalized',detail:'Dead-end reasoning patterns become less probable. Model "learns" to avoid them.',col:'var(--red)',d:.58},
+        {n:6,label:'Repeat millions of times',detail:'The model\'s thinking style is progressively shaped by what actually works',col:'var(--orange)',d:.70},
+      ].map(({n,label,detail,col,d})=>`
+      <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:10px;opacity:0;animation:up .35s ease ${d}s forwards">
+        <div style="width:26px;height:26px;border-radius:7px;background:${col}20;border:1px solid ${col};display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;font-weight:700;color:${col};flex-shrink:0">${n}</div>
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:3px">${label}</div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--muted)">${detail}</div>
+        </div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function s4a(){
+  // Visual: maze / branching paths
+  document.getElementById('viz').innerHTML=`<div class="center">
+    <div ${fi(.05)}><div class="bdg g">reasoning as path exploration</div></div>
+    <div style="width:100%;max-width:640px;margin-top:8px">
+      <!-- Problem box -->
+      <div style="text-align:center;font-family:var(--mono);font-size:12px;color:var(--muted);padding:8px 16px;border:1px solid var(--border);border-radius:7px;background:var(--bg3);margin-bottom:16px" ${fi(.1)}>"Prove that no three positive integers a, b, c satisfy a⁴+b⁴=c⁴"</div>
+      <!-- Thinking stream with paths -->
+      <div style="position:relative;width:100%" ${fi(.18)}>
+        <!-- Path A -->
+        <div style="margin-bottom:6px">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:4px">Approach A: try infinite descent</div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;padding:8px 12px;border:1px solid rgba(176,158,255,.25);border-radius:8px;background:rgba(176,158,255,.04)">
+            <div class="chip th" style="font-size:10px;padding:3px 8px;opacity:0;animation:slideR .3s ease .2s forwards">Assume solution exists...</div>
+            <div class="chip th" style="font-size:10px;padding:3px 8px;opacity:0;animation:slideR .3s ease .32s forwards">Smallest solution a₀,b₀,c₀...</div>
+            <div class="chip th" style="font-size:10px;padding:3px 8px;opacity:0;animation:slideR .3s ease .44s forwards">Derive smaller solution...</div>
+            <div class="chip bt" style="font-size:10px;padding:3px 8px;opacity:0;animation:slideR .3s ease .56s forwards">⚠ Contradiction! This doesn't work for fourth powers.</div>
+          </div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--red);margin-top:3px;opacity:0;animation:up .3s ease .62s forwards">✗ Approach A abandoned — backtrack</div>
+        </div>
+        <!-- Path B -->
+        <div style="margin-bottom:6px">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:4px;opacity:0;animation:up .3s ease .7s forwards">Approach B: reduce to Fermat n=4</div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;padding:8px 12px;border:1px solid rgba(74,222,128,.25);border-radius:8px;background:rgba(74,222,128,.04);opacity:0;animation:up .3s ease .75s forwards">
+            <div class="chip vr" style="font-size:10px;padding:3px 8px">If a⁴+b⁴=c⁴ then (a²)²+(b²)²=(c²)²</div>
+            <div class="chip vr" style="font-size:10px;padding:3px 8px">This is Fermat's Last Theorem for n=4</div>
+            <div class="chip vr" style="font-size:10px;padding:3px 8px">Fermat proved n=4 case in 1640s</div>
+            <div class="chip out" style="font-size:10px;padding:3px 8px;animation:gteal 2s infinite">✓ Proven — contradiction by Fermat's method</div>
+          </div>
+        </div>
+        <!-- Final answer -->
+        <div style="opacity:0;animation:up .4s ease 1.1s forwards">
+          <div style="border:1px solid var(--teal);border-radius:8px;padding:10px 16px;background:var(--teal-dim);display:flex;align-items:center;gap:10px">
+            <div class="chip out" style="animation:gteal 2s infinite">Answer: No such integers exist. Proven by reduction to Fermat n=4.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function s4b(){
+  document.getElementById('viz').innerHTML=`<div class="center">
+    <div ${fi(.05)}><div class="bdg g">budget = exploration space</div></div>
+    <div style="width:100%;max-width:620px;margin-top:8px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:8px">SAME HARD PROBLEM — DIFFERENT THINKING BUDGETS</div>
+      ${[
+        {budget:'200 tokens',pct:15,paths:1,backtrack:false,outcome:'Commits to first approach. Often wrong on hard problems.',col:'var(--red)'},
+        {budget:'1,000 tokens',pct:45,paths:2,backtrack:true,outcome:'Can try one backup approach. Moderate accuracy.',col:'var(--amber)'},
+        {budget:'5,000 tokens',pct:75,paths:3,backtrack:true,outcome:'Full exploration: 3+ paths, verification, self-correction.',col:'var(--green)'},
+        {budget:'20,000 tokens',pct:90,paths:'4+',backtrack:true,outcome:'Deep exploration. Tries edge cases. Very high accuracy on hard math.',col:'var(--teal)'},
+      ].map(({budget,pct,paths,backtrack,outcome,col},i)=>`
+      <div style="margin-bottom:12px;opacity:0;animation:up .35s ease ${.12+i*.15}s forwards">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+          <div>
+            <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text)">${budget}</span>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:10px">paths: ${paths} · backtrack: ${backtrack?'✓':'✗'}</span>
+          </div>
+          <div style="font-family:var(--mono);font-size:13px;font-weight:700;color:${col}">${pct}%</div>
+        </div>
+        <div style="height:22px;border-radius:6px;background:var(--bg3);overflow:hidden;margin-bottom:3px">
+          <div style="height:100%;border-radius:6px;background:${col};width:0;animation:grow .8s ease ${.3+i*.15}s forwards"></div>
+        </div>
+        <div style="font-size:11px;color:var(--muted)">${outcome}</div>
+      </div>`).join('')}
+    </div>
+    <div class="eq" ${fi(.85)}>accuracy ∝ log(thinking_budget) on hard problems</div>
+  </div>`;
+}
+
+function s5a(){
+  // Animated hallucination in reasoning chain
+  document.getElementById('viz').innerHTML=`<div class="center">
+    <div ${fi(.05)}><div class="bdg r">hallucination propagating through reasoning</div></div>
+    <div style="font-size:13px;color:var(--muted);text-align:center" ${fi(.1)}>Watch a wrong premise corrupt an entire reasoning chain</div>
+    <div style="width:100%;max-width:620px;margin-top:8px;display:flex;flex-direction:column;gap:6px">
+      ${[
+        {text:'Problem: "What is the boiling point of water at 3 atm pressure?"', type:'input', col:'var(--amber)', d:.12, note:''},
+        {text:'Water boils at 100°C at sea level.', type:'think', col:'var(--purple)', d:.24, note:'✓ correct'},
+        {text:'Pressure increases boiling point by 10°C per additional atm.', type:'WRONG', col:'var(--red)', d:.38, note:'✗ HALLUCINATED — rule of thumb is wrong'},
+        {text:'3 atm = 2 extra atm above baseline.', type:'think', col:'var(--purple)', d:.52, note:'builds on wrong premise'},
+        {text:'Boiling point = 100 + (2 × 10) = 120°C', type:'think', col:'var(--purple)', d:.66, note:'wrong answer, but reasoning "looks right"'},
+        {text:'The boiling point of water at 3 atm is 120°C.', type:'output', col:'var(--red)', d:.82, note:'✗ actual answer is ~133.5°C'},
+      ].map(({text,type,col,d,note})=>`
+      <div style="display:flex;gap:10px;align-items:flex-start;opacity:0;animation:${type==='WRONG'?'shake':'slideR'} .4s ease ${d}s forwards">
+        <div style="width:10px;height:10px;border-radius:50%;background:${col};flex-shrink:0;margin-top:5px;${type==='WRONG'?'animation:gred 1.5s infinite':''}"></div>
+        <div style="flex:1;border:1px solid ${col};border-radius:7px;padding:7px 12px;background:${col}10;${type==='WRONG'?'animation:gred 2s '+d+'s infinite':''}">
+          <div style="font-family:var(--mono);font-size:11px;color:${col};margin-bottom:${note?3:0}px">${text}</div>
+          ${note?`<div style="font-size:10px;color:${type==='WRONG'||type==='output'?'var(--red)':'var(--muted)'}">${note}</div>`:''}
+        </div>
+      </div>`).join('')}
+    </div>
+    <div ${fi(1.0)} style="border:1px solid var(--red);border-radius:9px;padding:10px 16px;background:var(--red-dim);max-width:580px;text-align:center">
+      <div style="font-size:12px;color:var(--muted)">The reasoning <em>looks</em> valid. The steps follow logically. But the chain was corrupted at step 3 by a hallucinated "fact". <strong style="color:var(--text)">There's no internal alarm — the model can't tell.</strong></div>
+    </div>
+  </div>`;
+}
+
+function s5b(){
+  document.getElementById('viz').innerHTML=`<div class="center">
+    <div ${fi(.05)}><div class="bdg r">what reasoning can and can't do</div></div>
+    <div style="width:100%;max-width:640px;margin-top:8px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <!-- Can do -->
+        <div style="border:1px solid var(--green);border-radius:12px;background:var(--green-dim);padding:14px" ${fi(.12)}>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--green);margin-bottom:10px">✓ REASONING HELPS WITH</div>
+          ${['Novel combinations of known concepts','Multi-step problems needing working memory','Self-correction when a path fails internally','Structured problems with verifiable steps','Catching own arithmetic errors mid-chain'].map((t,i)=>`
+          <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:7px;opacity:0;animation:up .3s ease ${.2+i*.08}s forwards">
+            <div style="color:var(--green);font-size:12px;flex-shrink:0;margin-top:1px">✓</div>
+            <div style="font-size:12px;color:var(--muted)">${t}</div>
+          </div>`).join('')}
+        </div>
+        <!-- Can't do -->
+        <div style="border:1px solid var(--red);border-radius:12px;background:var(--red-dim);padding:14px" ${fi(.2)}>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--red);margin-bottom:10px">✗ REASONING CANNOT</div>
+          ${['Create knowledge absent from training','Detect its own hallucinated "facts"','Reason about post-training events','Guarantee correctness on truly novel problems','Skip reasoning when it looks easy (sometimes)'].map((t,i)=>`
+          <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:7px;opacity:0;animation:up .3s ease ${.28+i*.08}s forwards">
+            <div style="color:var(--red);font-size:12px;flex-shrink:0;margin-top:1px">✗</div>
+            <div style="font-size:12px;color:var(--muted)">${t}</div>
+          </div>`).join('')}
+        </div>
+      </div>
+      <!-- RAG solution -->
+      <div style="border:1px solid var(--blue);border-radius:10px;padding:14px 18px;background:var(--blue-dim);margin-top:12px" ${fi(.75)}>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--blue);margin-bottom:8px">THE PARTIAL FIX — RAG + REASONING</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center">
+          <div style="text-align:center;padding:10px 16px;border:1px solid var(--blue);border-radius:8px;background:rgba(77,166,255,.08)">
+            <div style="font-family:var(--mono);font-size:11px;color:var(--blue)">Retrieval (RAG)</div>
+            <div style="font-size:11px;color:var(--muted)">What facts to think with</div>
+          </div>
+          <div style="font-size:20px;color:var(--muted)">+</div>
+          <div style="text-align:center;padding:10px 16px;border:1px solid var(--orange);border-radius:8px;background:var(--orange-dim)">
+            <div style="font-family:var(--mono);font-size:11px;color:var(--orange)">Reasoning Model</div>
+            <div style="font-size:11px;color:var(--muted)">How to think with them</div>
+          </div>
+          <div style="font-size:20px;color:var(--muted)">=</div>
+          <div style="text-align:center;padding:10px 16px;border:1px solid var(--green);border-radius:8px;background:var(--green-dim)">
+            <div style="font-family:var(--mono);font-size:11px;color:var(--green)">Grounded Reasoning</div>
+            <div style="font-size:11px;color:var(--muted)">Fewer hallucinations</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ── BOOT ── */
+render();
+</script>
+</body>
+</html>
